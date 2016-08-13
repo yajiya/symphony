@@ -1,11 +1,69 @@
 {
     "description": "Description of repository structures, for generation (DDL: http://en.wikipedia.org/wiki/Data_Definition_Language) of the relational database table and persistence validation.",
-    "version": "3.17.4.7, Apr 20, 2016",
+    "version": "3.26.6.10, Aug 12, 2016",
     "authors": [
         "Liang Ding"
     ],
     "since": "0.2.0",
     "repositories": [
+        {
+            "name": "invitecode",
+            "keys": [
+                {
+                    "name": "oId",
+                    "type": "String",
+                    "length": 19
+                },
+                {
+                    "name": "code",
+                    "type": "String",
+                    "length": 16
+                },
+                {
+                    "name": "userId",
+                    "type": "String",
+                    "length": 19
+                },
+                {
+                    "name": "useTime",
+                    "type": "long"
+                },
+                {
+                    "name": "status",
+                    "type": "int"
+                },
+                {
+                    "name": "memo",
+                    "type": "String",
+                    "length": 512
+                }
+            ]
+        },
+        {
+            "name": "character",
+            "keys": [
+                {
+                    "name": "oId",
+                    "type": "String",
+                    "length": 19
+                },
+                {
+                    "name": "characterUserId",
+                    "type": "String",
+                    "length": 19
+                },
+                {
+                    "name": "characterImg",
+                    "type": "String",
+                    "length": 1048576
+                },
+                {
+                    "name": "characterContent",
+                    "type": "String",
+                    "length": 16
+                }
+            ]
+        },
         {
             "name": "referral",
             "keys": [
@@ -170,7 +228,7 @@
                 {
                     "name": "domainIconPath",
                     "type": "String",
-                    "length": 128
+                    "length": 1024
                 },
                 {
                     "name": "domainCSS",
@@ -476,8 +534,27 @@
                 {
                     "name": "commentUA",
                     "type": "String",
-                    "length": 128,
+                    "length": 255,
                     "description": "User-Agent"
+                },
+                {
+                    "name": "commentAnonymous",
+                    "type": "int",
+                    "description": "0: public, 1: anonymous"
+                },
+                {
+                    "name": "commentGoodCnt",
+                    "description": "Favour count",
+                    "type": "int"
+                },
+                {
+                    "name": "commentBadCnt",
+                    "description": "Oppose count",
+                    "type": "int"
+                },
+                {
+                    "name": "commentScore",
+                    "type": "double"
                 }
             ]
         },
@@ -656,7 +733,7 @@
                 {
                     "name": "userEmail",
                     "type": "String",
-                    "length": 256
+                    "length": 255
                 },
                 {
                     "name": "userName",
@@ -668,6 +745,11 @@
                     "name": "userPassword",
                     "type": "String",
                     "length": 32
+                },
+                {
+                    "name": "userNickname",
+                    "type": "String",
+                    "length": 20
                 },
                 {
                     "name": "userTags",
@@ -853,6 +935,65 @@
                     "name": "userCommentViewMode",
                     "type": "int",
                     "description": "0: traditional, 1: real time"
+                },
+                {
+                    "name": "userUAStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userNotifyStatus",
+                    "type": "int",
+                    "description": "0: enabled, 1: disabled"
+                },
+                {
+                    "name": "userPointStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userFollowerStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userFollowingArticleStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userFollowingTagStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userFollowingUserStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userCommentStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userArticleStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userOnlineStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userTimelineStatus",
+                    "type": "int",
+                    "description": "0: public, 1: private"
+                },
+                {
+                    "name": "userListPageSize",
+                    "type": "int"
                 }
             ]
         },
@@ -895,12 +1036,12 @@
                 {
                     "name": "articleContent",
                     "type": "String",
-                    "length": 1048576
+                    "length": 102400
                 },
                 {
                     "name": "articleRewardContent",
                     "type": "String",
-                    "length": 1048576
+                    "length": 102400
                 },
                 {
                     "name": "articleRewardPoint",
@@ -998,12 +1139,22 @@
                 {
                     "name": "articleUA",
                     "type": "String",
-                    "length": 128,
+                    "length": 255,
                     "description": "User-Agent"
                 },
                 {
                     "name": "articleStick",
                     "type": "long"
+                },
+                {
+                    "name": "articleAnonymous",
+                    "type": "int",
+                    "description": "0: public, 1: anonymous"
+                },
+                {
+                    "name": "articlePerfect",
+                    "type": "int",
+                    "description": "0: not perfect, 1: perfect"
                 }
             ]
         },

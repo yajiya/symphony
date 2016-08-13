@@ -56,7 +56,7 @@ import org.json.JSONObject;
  * </ul>
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.1.0.2, Apr 12, 2016
+ * @version 1.1.0.3, Aug 11, 2016
  * @since 1.3.0
  */
 @RequestProcessor
@@ -107,7 +107,7 @@ public class CityProcessor {
         final Map<String, Object> dataModel = renderer.getDataModel();
         filler.fillHeaderAndFooter(request, response, dataModel);
         filler.fillRandomArticles(dataModel);
-        filler.fillHotArticles(dataModel);
+        filler.fillSideHotArticles(dataModel);
         filler.fillSideTags(dataModel);
         filler.fillLatestCmts(dataModel);
         filler.fillDomainNav(dataModel);
@@ -149,7 +149,7 @@ public class CityProcessor {
         }
 
         final int pageNum = Integer.valueOf(pageNumStr);
-        final int pageSize = Symphonys.getInt("cityArticlesCnt");
+        final int pageSize = user.optInt(UserExt.USER_LIST_PAGE_SIZE);
         final int windowSize = Symphonys.getInt("cityArticlesWindowSize");
 
         final JSONObject statistic = optionQueryService.getOption(queryCity + "-ArticleCount");

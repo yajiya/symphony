@@ -19,6 +19,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.inject.Inject;
 import org.apache.commons.lang.StringUtils;
 import org.b3log.latke.Keys;
@@ -44,6 +46,7 @@ import org.b3log.symphony.model.Article;
 import org.b3log.symphony.model.Comment;
 import org.b3log.symphony.model.Common;
 import org.b3log.symphony.model.UserExt;
+import org.b3log.symphony.processor.advice.validate.UserRegisterValidation;
 import org.b3log.symphony.repository.ArticleRepository;
 import org.b3log.symphony.repository.CommentRepository;
 import org.b3log.symphony.repository.UserRepository;
@@ -60,7 +63,7 @@ import org.jsoup.safety.Whitelist;
  * Comment management service.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 2.5.5.17, Apr 21, 2016
+ * @version 2.7.6.19, Aug 13, 2016
  * @since 0.2.0
  */
 @Service
@@ -279,20 +282,35 @@ public class CommentQueryService {
      * Gets the user comments with the specified user id, page number and page size.
      *
      * @param userId the specified user id
+     * @param anonymous the specified comment anonymous
      * @param currentPageNum the specified page number
      * @param pageSize the specified page size
      * @param viewer the specified viewer, may be {@code null}
      * @return user comments, return an empty list if not found
      * @throws ServiceException service exception
      */
-    public List<JSONObject> getUserComments(final String userId, final int currentPageNum, final int pageSize,
-            final JSONObject viewer) throws ServiceException {
+    public List<JSONObject> getUserComments(final String userId, final int anonymous,
+            final int currentPageNum, final int pageSize, final JSONObject viewer) throws ServiceException {
         final Query query = new Query().addSort(Comment.COMMENT_CREATE_TIME, SortDirection.DESCENDING)
                 .setCurrentPageNum(currentPageNum).setPageSize(pageSize).
-                setFilter(new PropertyFilter(Comment.COMMENT_AUTHOR_ID, FilterOperator.EQUAL, userId));
+                setFilter(CompositeFilterOperator.and(
+                        new PropertyFilter(Comment.COMMENT_AUTHOR_ID, FilterOperator.EQUAL, userId),
+                        new PropertyFilter(Comment.COMMENT_ANONYMOUS, FilterOperator.EQUAL, anonymous)
+                ));
         try {
             final JSONObject result = commentRepository.get(query);
             final List<JSONObject> ret = CollectionUtils.<JSONObject>jsonArrayToList(result.optJSONArray(Keys.RESULTS));
+            if (ret.isEmpty()) {
+                return ret;
+            }
+
+            final JSONObject pagination = result.optJSONObject(Pagination.PAGINATION);
+            final int recordCount = pagination.optInt(Pagination.PAGINATION_RECORD_COUNT);
+            final int pageCount = pagination.optInt(Pagination.PAGINATION_PAGE_COUNT);
+
+            final JSONObject first = ret.get(0);
+            first.put(Pagination.PAGINATION_RECORD_COUNT, recordCount);
+            first.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
 
             for (final JSONObject comment : ret) {
                 comment.put(Comment.COMMENT_CREATE_TIME, new Date(comment.optLong(Comment.COMMENT_CREATE_TIME)));
@@ -306,6 +324,7 @@ public class CommentQueryService {
                         : Emotions.convert(article.optString(Article.ARTICLE_TITLE)));
                 comment.put(Comment.COMMENT_T_ARTICLE_TYPE, article.optInt(Article.ARTICLE_TYPE));
                 comment.put(Comment.COMMENT_T_ARTICLE_PERMALINK, article.optString(Article.ARTICLE_PERMALINK));
+                comment.put(Comment.COMMENT_T_ARTICLE_PERFECT, article.optInt(Article.ARTICLE_PERFECT));
 
                 final JSONObject commenter = userRepository.get(userId);
                 comment.put(Comment.COMMENT_T_COMMENTER, commenter);
@@ -313,13 +332,19 @@ public class CommentQueryService {
                 final String articleAuthorId = article.optString(Article.ARTICLE_AUTHOR_ID);
                 final JSONObject articleAuthor = userRepository.get(articleAuthorId);
                 final String articleAuthorName = articleAuthor.optString(User.USER_NAME);
-                final String articleAuthorURL = "/member/" + articleAuthor.optString(User.USER_NAME);
-                comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_NAME, articleAuthorName);
-                comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_URL, articleAuthorURL);
-                final String articleAuthorThumbnailURL = avatarQueryService.getAvatarURLByUser(articleAuthor);
-                comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_THUMBNAIL_URL, articleAuthorThumbnailURL);
+                if (Article.ARTICLE_ANONYMOUS_C_PUBLIC == article.optInt(Article.ARTICLE_ANONYMOUS)) {
+                    comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_NAME, articleAuthorName);
+                    comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_URL, "/member/" + articleAuthor.optString(User.USER_NAME));
+                    final String articleAuthorThumbnailURL = avatarQueryService.getAvatarURLByUser(articleAuthor);
+                    comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_THUMBNAIL_URL, articleAuthorThumbnailURL);
+                } else {
+                    comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_NAME, UserExt.ANONYMOUS_USER_NAME);
+                    comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_URL, "");
+                    comment.put(Comment.COMMENT_T_ARTICLE_AUTHOR_THUMBNAIL_URL, AvatarQueryService.DEFAULT_AVATAR_URL);
+                }
 
-                if (Article.ARTICLE_TYPE_C_DISCUSSION == article.optInt(Article.ARTICLE_TYPE)) {
+                if (Article.ARTICLE_TYPE_C_DISCUSSION == article.optInt(Article.ARTICLE_TYPE)
+                        && Article.ARTICLE_ANONYMOUS_C_PUBLIC == article.optInt(Article.ARTICLE_ANONYMOUS)) {
                     final String msgContent = langPropsService.get("articleDiscussionLabel").
                             replace("{user}", "<a href='" + Latkes.getServePath()
                                     + "/member/" + articleAuthorName + "'>" + articleAuthorName + "</a>");
@@ -502,6 +527,7 @@ public class CommentQueryService {
      * <li>block comment if need</li>
      * <li>generates emotion images</li>
      * <li>generates time ago text</li>
+     * <li>anonymous process</li>
      * </ul>
      *
      * @param comments the specified comments
@@ -526,6 +552,7 @@ public class CommentQueryService {
      * <li>block comment if need</li>
      * <li>generates emotion images</li>
      * <li>generates time ago text</li>
+     * <li>anonymous process</li>
      * </ul>
      *
      * @param comment the specified comment
@@ -538,12 +565,17 @@ public class CommentQueryService {
         final String authorId = comment.optString(Comment.COMMENT_AUTHOR_ID);
         final JSONObject author = userRepository.get(authorId);
 
-        final String thumbnailURL = avatarQueryService.getAvatarURLByUser(author);
-        comment.put(Comment.COMMENT_T_AUTHOR_THUMBNAIL_URL, thumbnailURL);
-
         comment.put(Comment.COMMENT_T_COMMENTER, author);
-        comment.put(Comment.COMMENT_T_AUTHOR_NAME, author.optString(User.USER_NAME));
-        comment.put(Comment.COMMENT_T_AUTHOR_URL, author.optString(User.USER_URL));
+        if (Comment.COMMENT_ANONYMOUS_C_PUBLIC == comment.optInt(Comment.COMMENT_ANONYMOUS)) {
+            comment.put(Comment.COMMENT_T_AUTHOR_NAME, author.optString(User.USER_NAME));
+            comment.put(Comment.COMMENT_T_AUTHOR_URL, author.optString(User.USER_URL));
+            final String thumbnailURL = avatarQueryService.getAvatarURLByUser(author);
+            comment.put(Comment.COMMENT_T_AUTHOR_THUMBNAIL_URL, thumbnailURL);
+        } else {
+            comment.put(Comment.COMMENT_T_AUTHOR_NAME, UserExt.ANONYMOUS_USER_NAME);
+            comment.put(Comment.COMMENT_T_AUTHOR_URL, "");
+            comment.put(Comment.COMMENT_T_AUTHOR_THUMBNAIL_URL, AvatarQueryService.DEFAULT_AVATAR_URL);
+        }
 
         processCommentContent(comment);
     }
@@ -570,6 +602,9 @@ public class CommentQueryService {
     private void processCommentContent(final JSONObject comment) {
         final JSONObject commenter = comment.optJSONObject(Comment.COMMENT_T_COMMENTER);
 
+        final boolean sync = StringUtils.isNotBlank(comment.optString(Comment.COMMENT_CLIENT_COMMENT_ID));
+        comment.put(Common.FROM_CLIENT, sync);
+
         if (Comment.COMMENT_STATUS_C_INVALID == comment.optInt(Comment.COMMENT_STATUS)
                 || UserExt.USER_STATUS_C_INVALID == commenter.optInt(UserExt.USER_STATUS)) {
             comment.put(Comment.COMMENT_CONTENT, langPropsService.get("commentContentBlockLabel"));
@@ -586,6 +621,59 @@ public class CommentQueryService {
         commentContent = Emotions.convert(commentContent);
         commentContent = Markdowns.toHTML(commentContent);
         commentContent = Markdowns.clean(commentContent, "");
+
+        final String commentId = comment.optString(Keys.OBJECT_ID);
+        // MP3 player render
+        final StringBuffer contentBuilder = new StringBuffer();
+        final String MP3_URL_REGEX = "<p><a href.*\\.mp3.*</a>( )*</p>";
+        final Pattern p = Pattern.compile(MP3_URL_REGEX);
+        final Matcher m = p.matcher(commentContent);
+
+        int i = 0;
+        while (m.find()) {
+            String mp3URL = m.group();
+            String mp3Name = StringUtils.substringBetween(mp3URL, "\">", ".mp3</a>");
+            mp3URL = StringUtils.substringBetween(mp3URL, "href=\"", "\" rel=");
+            final String playerId = "player" + commentId + i++;
+
+            m.appendReplacement(contentBuilder, "<div id=\"" + playerId + "\" class=\"aplayer\"></div>\n"
+                    + "<script>\n"
+                    + "var " + playerId + " = new APlayer({\n"
+                    + "    element: document.getElementById('" + playerId + "'),\n"
+                    + "    narrow: false,\n"
+                    + "    autoplay: false,\n"
+                    + "    showlrc: false,\n"
+                    + "    mutex: true,\n"
+                    + "    theme: '#e6d0b2',\n"
+                    + "    music: {\n"
+                    + "        title: '" + mp3Name + "',\n"
+                    + "        author: '" + mp3URL + "',\n"
+                    + "        url: '" + mp3URL + "',\n"
+                    + "        pic: '" + Latkes.getStaticServePath() + "/js/lib/aplayer/default.jpg'\n"
+                    + "    }\n"
+                    + "});\n"
+                    + playerId + ".init();\n"
+                    + "</script>");
+        }
+        m.appendTail(contentBuilder);
+
+        commentContent = contentBuilder.toString();
+        commentContent = commentContent.replaceFirst("<div id=\"player",
+                "<script src=\"" + Latkes.getStaticServePath() + "/js/lib/aplayer/APlayer.min.js\"></script>\n<div id=\"player");
+
+        if (sync) {
+            // "<i class='ft-small'>by 88250</i>"
+            String syncCommenterName = StringUtils.substringAfter(commentContent, "<i class=\"ft-small\">by ");
+            syncCommenterName = StringUtils.substringBefore(syncCommenterName, "</i>");
+
+            if (UserRegisterValidation.invalidUserName(syncCommenterName)) {
+                syncCommenterName = UserExt.ANONYMOUS_USER_NAME;
+            }
+
+            commentContent = commentContent.replaceAll("<i class=\"ft-small\">by .*</i>", "");
+
+            comment.put(Comment.COMMENT_T_AUTHOR_NAME, syncCommenterName);
+        }
 
         comment.put(Comment.COMMENT_CONTENT, commentContent);
     }

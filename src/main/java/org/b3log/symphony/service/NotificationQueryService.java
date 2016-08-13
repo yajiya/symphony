@@ -57,7 +57,7 @@ import org.json.JSONObject;
  * Notification query service.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.4.2.5, Apr 18, 2016
+ * @version 1.6.2.5, Aug 13, 2016
  * @since 0.2.5
  */
 @Service
@@ -203,6 +203,8 @@ public class NotificationQueryService {
         subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
                 Notification.DATA_TYPE_C_POINT_ARTICLE_REWARD));
         subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
+                Notification.DATA_TYPE_C_POINT_ARTICLE_THANK));
+        subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
                 Notification.DATA_TYPE_C_POINT_CHARGE));
         subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
                 Notification.DATA_TYPE_C_POINT_EXCHANGE));
@@ -261,6 +263,8 @@ public class NotificationQueryService {
         subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
                 Notification.DATA_TYPE_C_POINT_ARTICLE_REWARD));
         subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
+                Notification.DATA_TYPE_C_POINT_ARTICLE_THANK));
+        subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
                 Notification.DATA_TYPE_C_POINT_CHARGE));
         subFilters.add(new PropertyFilter(Notification.NOTIFICATION_DATA_TYPE, FilterOperator.EQUAL,
                 Notification.DATA_TYPE_C_POINT_EXCHANGE));
@@ -292,6 +296,25 @@ public class NotificationQueryService {
                 String desTemplate = "";
 
                 switch (dataType) {
+                    case Notification.DATA_TYPE_C_POINT_ARTICLE_THANK:
+                        desTemplate = langPropsService.get("notificationArticleThankLabel");
+
+                        final JSONObject reward12 = rewardRepository.get(dataId);
+                        final String senderId12 = reward12.optString(Reward.SENDER_ID);
+                        final JSONObject user12 = userRepository.get(senderId12);
+                        final String articleId12 = reward12.optString(Reward.DATA_ID);
+                        final JSONObject article12 = articleRepository.get(articleId12);
+
+                        final String userLink12 = "<a href=\"/member/" + user12.optString(User.USER_NAME) + "\">"
+                                + user12.optString(User.USER_NAME) + "</a>";
+                        desTemplate = desTemplate.replace("{user}", userLink12);
+
+                        final String articleLink12 = "<a href=\""
+                                + article12.optString(Article.ARTICLE_PERMALINK) + "\">"
+                                + article12.optString(Article.ARTICLE_TITLE) + "</a>";
+                        desTemplate = desTemplate.replace("{article}", articleLink12);
+
+                        break;
                     case Notification.DATA_TYPE_C_POINT_ARTICLE_REWARD:
                         desTemplate = langPropsService.get("notificationArticleRewardLabel");
 
@@ -458,6 +481,7 @@ public class NotificationQueryService {
                 final JSONObject article = rlts.optJSONObject(0);
                 final String articleTitle = article.optString(Article.ARTICLE_TITLE);
                 final int articleType = article.optInt(Article.ARTICLE_TYPE);
+                final int articlePerfect = article.optInt(Article.ARTICLE_PERFECT);
 
                 final JSONObject commentedNotification = new JSONObject();
                 commentedNotification.put(Keys.OBJECT_ID, notification.optString(Keys.OBJECT_ID));
@@ -472,6 +496,7 @@ public class NotificationQueryService {
                 commentedNotification.put(Comment.COMMENT_SHARP_URL, comment.optString(Comment.COMMENT_SHARP_URL));
                 commentedNotification.put(Comment.COMMENT_CREATE_TIME, comment.opt(Comment.COMMENT_CREATE_TIME));
                 commentedNotification.put(Notification.NOTIFICATION_HAS_READ, notification.optBoolean(Notification.NOTIFICATION_HAS_READ));
+                commentedNotification.put(Comment.COMMENT_T_ARTICLE_PERFECT, articlePerfect);
 
                 rslts.add(commentedNotification);
             }
@@ -549,6 +574,7 @@ public class NotificationQueryService {
                     final JSONObject article = rlts.optJSONObject(0);
                     final String articleTitle = article.optString(Article.ARTICLE_TITLE);
                     final int articleType = article.optInt(Article.ARTICLE_TYPE);
+                    final int articlePerfect = article.optInt(Article.ARTICLE_PERFECT);
 
                     final JSONObject atNotification = new JSONObject();
                     atNotification.put(Keys.OBJECT_ID, notification.optString(Keys.OBJECT_ID));
@@ -564,6 +590,7 @@ public class NotificationQueryService {
                     atNotification.put(Common.CREATE_TIME, comment.opt(Comment.COMMENT_CREATE_TIME));
                     atNotification.put(Notification.NOTIFICATION_HAS_READ, notification.optBoolean(Notification.NOTIFICATION_HAS_READ));
                     atNotification.put(Notification.NOTIFICATION_T_AT_IN_ARTICLE, false);
+                    atNotification.put(Article.ARTICLE_PERFECT, articlePerfect);
 
                     rslts.add(atNotification);
                 } else { // The 'at' in article content
@@ -587,6 +614,7 @@ public class NotificationQueryService {
                     atNotification.put(Notification.NOTIFICATION_T_AT_IN_ARTICLE, true);
                     atNotification.put(Article.ARTICLE_TAGS, article.optString(Article.ARTICLE_TAGS));
                     atNotification.put(Article.ARTICLE_COMMENT_CNT, article.optInt(Article.ARTICLE_COMMENT_CNT));
+                    atNotification.put(Article.ARTICLE_PERFECT, article.optInt(Article.ARTICLE_PERFECT));
 
                     rslts.add(atNotification);
                 }
@@ -663,6 +691,7 @@ public class NotificationQueryService {
                         addProjection(Article.ARTICLE_CREATE_TIME, Long.class).
                         addProjection(Article.ARTICLE_TAGS, String.class).
                         addProjection(Article.ARTICLE_COMMENT_CNT, Integer.class).
+                        addProjection(Article.ARTICLE_PERFECT, Integer.class).
                         setFilter(new PropertyFilter(Keys.OBJECT_ID, FilterOperator.EQUAL, articleId));
                 final JSONArray rlts = articleRepository.get(q).optJSONArray(Keys.RESULTS);
                 final JSONObject article = rlts.optJSONObject(0);
@@ -698,6 +727,7 @@ public class NotificationQueryService {
                 followingUserNotification.put(Article.ARTICLE_TYPE, article.optInt(Article.ARTICLE_TYPE));
                 followingUserNotification.put(Article.ARTICLE_TAGS, article.optString(Article.ARTICLE_TAGS));
                 followingUserNotification.put(Article.ARTICLE_COMMENT_CNT, article.optInt(Article.ARTICLE_COMMENT_CNT));
+                followingUserNotification.put(Article.ARTICLE_PERFECT, article.optInt(Article.ARTICLE_PERFECT));
 
                 rslts.add(followingUserNotification);
             }
@@ -773,6 +803,7 @@ public class NotificationQueryService {
                         addProjection(Article.ARTICLE_CREATE_TIME, Long.class).
                         addProjection(Article.ARTICLE_TAGS, String.class).
                         addProjection(Article.ARTICLE_COMMENT_CNT, Integer.class).
+                        addProjection(Article.ARTICLE_PERFECT, Integer.class).
                         setFilter(new PropertyFilter(Keys.OBJECT_ID, FilterOperator.EQUAL, articleId));
                 final JSONArray rlts = articleRepository.get(q).optJSONArray(Keys.RESULTS);
                 final JSONObject article = rlts.optJSONObject(0);
@@ -808,6 +839,7 @@ public class NotificationQueryService {
                 broadcastNotification.put(Article.ARTICLE_TYPE, article.optInt(Article.ARTICLE_TYPE));
                 broadcastNotification.put(Article.ARTICLE_TAGS, article.optString(Article.ARTICLE_TAGS));
                 broadcastNotification.put(Article.ARTICLE_COMMENT_CNT, article.optInt(Article.ARTICLE_COMMENT_CNT));
+                broadcastNotification.put(Article.ARTICLE_PERFECT, article.optInt(Article.ARTICLE_PERFECT));
 
                 rslts.add(broadcastNotification);
             }

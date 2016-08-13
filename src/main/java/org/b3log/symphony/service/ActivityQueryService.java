@@ -30,7 +30,6 @@ import org.b3log.latke.repository.SortDirection;
 import org.b3log.latke.service.annotation.Service;
 import org.b3log.latke.util.CollectionUtils;
 import org.b3log.latke.util.Stopwatchs;
-import org.b3log.symphony.cache.UserCache;
 import org.b3log.symphony.model.Pointtransfer;
 import org.b3log.symphony.model.UserExt;
 import org.b3log.symphony.repository.UserRepository;
@@ -41,7 +40,7 @@ import org.json.JSONObject;
  * Activity query service.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.4.1.1, Apr 14, 2016
+ * @version 1.4.1.3, Jun 16, 2016
  * @since 1.3.0
  */
 @Service
@@ -69,12 +68,6 @@ public class ActivityQueryService {
      */
     @Inject
     private AvatarQueryService avatarQueryService;
-
-    /**
-     * User cache.
-     */
-    @Inject
-    private UserCache userCache;
 
     /**
      * Gets the top checkin users with the specified fetch size.

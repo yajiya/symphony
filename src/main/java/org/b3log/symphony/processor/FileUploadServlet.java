@@ -30,6 +30,7 @@ import javax.servlet.http.HttpServletResponse;
 import jodd.io.FileUtil;
 import jodd.upload.MultipartRequestInputStream;
 import jodd.util.MimeTypes;
+import jodd.util.URLDecoder;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang.StringUtils;
 import org.b3log.latke.Latkes;
@@ -41,10 +42,10 @@ import org.b3log.symphony.util.Symphonys;
 import org.json.JSONObject;
 
 /**
- * File upload.
+ * File upload to local.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.1.0.0, Feb 2, 2016
+ * @version 1.1.2.1, Jul 6, 2016
  * @since 1.4.0
  */
 @WebServlet(urlPatterns = {"/upload", "/upload/*"}, loadOnStartup = 2)
@@ -89,10 +90,11 @@ public class FileUploadServlet extends HttpServlet {
 
         final String uri = req.getRequestURI();
         String key = uri.substring("/upload/".length());
-        key = StringUtils.substringBeforeLast(key, "-64.jpg"); // Erase Qiniu template
-        key = StringUtils.substringBeforeLast(key, "-260.jpg"); // Erase Qiniu template
+        key = StringUtils.substringBeforeLast(key, "?"); // Erase Qiniu template
+        key = StringUtils.substringBeforeLast(key, "?"); // Erase Qiniu template
 
         String path = UPLOAD_DIR + key;
+        path = URLDecoder.decode(path, "UTF-8");
 
         if (!FileUtil.isExistingFile(new File(path))) {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
@@ -133,17 +135,24 @@ public class FileUploadServlet extends HttpServlet {
         multipartRequestInputStream.readBoundary();
         multipartRequestInputStream.readDataHeader("UTF-8");
 
-        final String mimeType = multipartRequestInputStream.getLastHeader().getContentType();
+        String fileName = multipartRequestInputStream.getLastHeader().getFileName();
+        final String name = StringUtils.substringBeforeLast(fileName, ".");
+        String suffix = StringUtils.substringAfterLast(fileName, ".");
+        if (StringUtils.isBlank(suffix)) {
+            final String mimeType = multipartRequestInputStream.getLastHeader().getContentType();
+            String[] exts = MimeTypes.findExtensionsByMimeTypes(mimeType, false);
 
-        String suffix;
-        String[] exts = MimeTypes.findExtensionsByMimeTypes(mimeType, false);
-        if (null == exts || 0 == exts.length) {
-            suffix = StringUtils.substringAfterLast(multipartRequestInputStream.getLastHeader().getFileName(), ".");
-        } else {
-            suffix = exts[0];
+            if (null != exts && 0 < exts.length) {
+                suffix = exts[0];
+            } else {
+                suffix = StringUtils.substringAfter(mimeType, "/");
+            }
         }
 
-        final String fileName = UUID.randomUUID().toString().replaceAll("-", "") + "." + suffix;
+        final String uuid = UUID.randomUUID().toString().replaceAll("-", "");
+        fileName = name + "-" + uuid + "." + suffix;
+        
+        fileName = StringUtils.replace(fileName, " ", "_");
 
         final OutputStream output = new FileOutputStream(UPLOAD_DIR + fileName);
         IOUtils.copy(multipartRequestInputStream, output);

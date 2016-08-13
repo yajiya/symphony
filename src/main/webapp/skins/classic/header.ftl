@@ -2,41 +2,33 @@
     <div class="wrapper fn-clear">
         <div class="head-fn fn-clear">
             <h1 class="fn-left">
-                <a href="/" style="background-image: url('${staticServePath}/images/hacpai.png')" alt="${symphonyLabel}" 
-                   title="${symphonyLabel}" width="42" class="fn-pointer"></a>
+                ${logoIcon}
             </h1>
             <#if esEnabled || algoliaEnabled>
             <form class="responsive-hide fn-left" target="_blank" action="/search">
                 <input class="search" placeholder="Search HacPai" type="text" name="key" id="search" value="<#if key??>${key}</#if>" >
-                <input type="submit" class="fn-none" value="">
+                <input type="submit" class="fn-none" value=""/>
             </form>
             </#if>
-            <#--        
-            <div class="fn-right">
-                <a href="/timeline" class="icon-clock last" title="${timelineLabel}"></a>
-                <#if isLoggedIn>
-                <a href="/city/my" class="icon-compass" title="${sameCityLabel}"></a>
-                </#if>
-                <a href="/hot" class="icon-refresh" title="${recentArticleLabel}"></a>
-            </div> -->
         </div>
 
         <div class="fn-clear user-nav">
             <#if isLoggedIn>
             <#if "adminRole" == userRole>
-            <a href="/admin" title="${adminLabel}" class="last icon-userrole"></a>
+            <a href="${servePath}/admin" aria-label="${adminLabel}" class="tooltipped tooltipped-w last"><span class="icon-userrole"></span></a>
             </#if>
-            <a href="/member/${currentUser.userName}" title="Home" class="<#if 'adminRole' != userRole>last </#if>nav-avatar">
-                <span class="avatar-small" style="background-image:url('${currentUser.userAvatarURL}-64.jpg?${currentUser.userUpdateTime?c}')"></span>
+            <a href="${servePath}/member/${currentUser.userName}" aria-label="Go Home" class="tooltipped tooltipped-w <#if 'adminRole' != userRole>last </#if>nav-avatar">
+                <span class="avatar-small" style="background-image:url('${currentUser.userAvatarURL}?imageView2/1/w/64/h/64/interlace/0/q/80')"></span>
             </a>
-            <a href="/activities" title="${activityLabel}" class="icon-flag"></a>
-            <a href="/pre-post" title="${addArticleLabel}" 
-               class="icon-addfile responsive-show"></a>
-            <a id="aNotifications" class="<#if unreadNotificationCount == 0>no-msg<#else>msg</#if>" href="/notifications" title="${messageLabel}">${unreadNotificationCount}</a>
+            <a href="${servePath}/activities" aria-label="${activityLabel}" class="tooltipped tooltipped-w"><span class="icon-flag"></span></a>
+            <a href="${servePath}/pre-post" aria-label="${addArticleLabel}" 
+               class="tooltipped tooltipped-w responsive-show"><span class="icon-addfile"></span></a>
+            <a id="aNotifications" class="tooltipped tooltipped-w <#if unreadNotificationCount == 0>no-msg<#else>msg</#if>" href="${servePath}/notifications" aria-label="${messageLabel}">${unreadNotificationCount}</a>
+            <a href="${servePath}/recent" aria-label="${latestLabel}${listLabel}" 
+               class="tooltipped tooltipped-w"><span class="icon-refresh"></span></a>
             <#else>
-            <a id="aRegister" href="javascript:Util.goRegister()" class="last ft-blue unlogin" 
-               title="${registerLabel}">${registerLabel}</a>
-            <a href="javascript: Util.showLogin();" title="${loginLabel}" class="unlogin">${loginLabel}</a>
+            <a id="aRegister" href="javascript:Util.goRegister()" class="last ft-blue unlogin">${registerLabel}</a>
+            <a href="javascript: Util.showLogin();" class="unlogin">${loginLabel}</a>
             <div class="form fn-none">
                 <table cellspacing="0" cellpadding="0">
                     <tr>

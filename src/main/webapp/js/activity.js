@@ -19,7 +19,7 @@
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
  * @author <a href="http://vanessa.b3log.org">Liyuan Li</a>
- * @version 1.1.2.0, Aug 29, 2015
+ * @version 1.2.2.3, Jun 12, 2016
  */
 
 /**
@@ -38,9 +38,9 @@ var Activity = {
         };
 
         $.ajax({
-            url: "/activity/1A0001/bet",
+            url: Label.servePath + "/activity/1A0001/bet",
             type: "POST",
-            headers: {"csrfToken": csrfToken},            
+            headers: {"csrfToken": csrfToken},
             cache: false,
             data: JSON.stringify(requestJSONObject),
             success: function (result, textStatus) {
@@ -68,7 +68,7 @@ var Activity = {
         };
 
         $.ajax({
-            url: "/activity/1A0001/collect",
+            url: Label.servePath + "/activity/1A0001/collect",
             type: "POST",
             cache: false,
             data: JSON.stringify(requestJSONObject),
@@ -86,9 +86,104 @@ var Activity = {
             }
         });
     },
-    init: function () {
+    /**
+     * paint brush
+     * @param {string} id canvas id.
+     * @returns {undefined}
+     */
+    charInit: function (id) {
+        var el = document.getElementById(id),
+                ctx = el.getContext('2d');
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 5;
+        ctx.lineJoin = ctx.lineCap = 'round';
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = 'rgb(0, 0, 0)';
 
+        var isDrawing = false, x = 0, y = 0;
+
+        el.onmousedown = function (e) {
+            isDrawing = true;
+            ctx.beginPath();
+            x = e.clientX - e.target.offsetLeft + $(window).scrollLeft();
+            y = e.clientY - e.target.offsetTop + $(window).scrollTop();
+            ctx.moveTo(x, y);
+        };
+
+        el.onmousemove = function (e) {
+            if (!isDrawing) {
+                return;
+            }
+
+            x = e.clientX - e.target.offsetLeft + $(window).scrollLeft();
+            y = e.clientY - e.target.offsetTop + $(window).scrollTop();
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        };
+
+        el.onmouseup = function () {
+            isDrawing = false;
+        };
+
+        el.addEventListener("touchstart", function (e) {
+            ctx.beginPath();
+            x = e.changedTouches[0].pageX - e.target.offsetLeft;
+            y = e.changedTouches[0].pageY - e.target.offsetTop;
+            ctx.moveTo(x, y);
+
+        }, false);
+
+        el.addEventListener("touchmove", function (e) {
+            e.preventDefault();
+            x = e.changedTouches[0].pageX - e.target.offsetLeft;
+            y = e.changedTouches[0].pageY - e.target.offsetTop;
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        }, false);
+    },
+    /**
+     * 提交写好字的图片.
+     * 
+     * @param {string} id canvas id.
+     */
+    submitCharacter: function (id) {
+        var canvas = document.getElementById(id);
+
+        var requestJSONObject = {
+            dataURL: canvas.toDataURL(),
+            character: $("h2.fn-inline a").text()
+        };
+
+        $.ajax({
+            url: Label.servePath + "/activity/character/submit",
+            type: "POST",
+            cache: false,
+            data: JSON.stringify(requestJSONObject),
+            beforeSend: function () {
+                var $btn = $("button.green");
+                $btn.attr("disabled", "disabled").css("opacity", "0.3").text($btn.text() + 'ing');
+            },
+            success: function (result, textStatus) {
+                alert(result.msg);
+
+                if (result.sc) {
+                    window.location.reload();
+                }
+            },
+            complete: function () {
+                var $btn = $("button.green");
+                $btn.removeAttr("disabled").css("opacity", "1").text($btn.text().substr(0, $btn.text().length - 3));
+            }
+        });
+    },
+    /**
+     * clear canvas
+     * 
+     * @param {string} id canvas id.
+     */
+    clearCharacter: function (id) {
+        var canvas = document.getElementById(id),
+                ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     }
 };
-
-Activity.init();

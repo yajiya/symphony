@@ -38,7 +38,7 @@ import org.pegdown.PegDownProcessor;
  * </p>
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.6.3.8, May 9, 2016
+ * @version 1.7.5.8, Jul 4, 2016
  * @since 0.2.0
  */
 public final class Markdowns {
@@ -62,16 +62,14 @@ public final class Markdowns {
 
         final String tmp = Jsoup.clean(content, baseURI, Whitelist.relaxed().
                 addAttributes(":all", "id", "target", "class").
-                addTags("span", "hr").addAttributes("iframe", "src", "width", "height")
-                .addAttributes("audio", "controls", "src"), outputSettings);
+                addTags("span", "hr").
+                addAttributes("iframe", "src", "width", "height", "border", "marginwidth", "marginheight").
+                addAttributes("audio", "controls", "src").
+                addAttributes("object", "width", "height", "data", "type").
+                addAttributes("param", "name", "value").
+                addAttributes("embed", "src", "type", "width", "height", "wmode", "allowNetworking"),
+                outputSettings);
         final Document doc = Jsoup.parse(tmp, baseURI, Parser.xmlParser());
-        final Elements iframes = doc.getElementsByTag("iframe");
-        for (final Element iframe : iframes) {
-            final String src = iframe.attr("src");
-            if (!src.startsWith("https://wide.b3log.org")) {
-                iframe.remove();
-            }
-        }
 
         final Elements ps = doc.getElementsByTag("p");
         for (final Element p : ps) {
@@ -91,15 +89,8 @@ public final class Markdowns {
         }
 
         final Elements audios = doc.getElementsByTag("audio");
-        final String qiniuDomain = Symphonys.get("qiniu.domain");
         for (final Element audio : audios) {
             final String src = audio.attr("src");
-
-            if (!StringUtils.startsWith(src, qiniuDomain)) {
-                audio.remove();
-
-                continue;
-            }
 
             audio.text(LANG_PROPS_SERVICE.get("notSupportAudioLabel"));
             audio.attr("preload", "none");
@@ -120,19 +111,14 @@ public final class Markdowns {
             return "";
         }
 
-//        final StringWriter writer = new StringWriter();
-//        final Markdown markdown = new Markdown();
-//
-//        try {
-//            markdown.transform(new StringReader(markdownText), writer);
-//        } catch (final ParseException e) {
-//            // LOGGER.log(Level.WARN, "Markdown error[text={0}]", markdownText);
-//            return markdownText;
-//        }
-//
-//        return writer.toString();
         final PegDownProcessor pegDownProcessor = new PegDownProcessor(Extensions.ALL, 5000);
-        return pegDownProcessor.markdownToHtml(markdownText);
+        String ret = pegDownProcessor.markdownToHtml(markdownText);
+
+        if (!StringUtils.startsWith(ret, "<p>")) {
+            ret = "<p>" + ret + "</p>";
+        }
+
+        return ret;
     }
 
     /**

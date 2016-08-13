@@ -15,6 +15,7 @@
  */
 package org.b3log.symphony.processor;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
@@ -32,9 +33,13 @@ import org.b3log.latke.servlet.annotation.RequestProcessing;
 import org.b3log.latke.servlet.annotation.RequestProcessor;
 import org.b3log.latke.servlet.renderer.freemarker.AbstractFreeMarkerRenderer;
 import org.b3log.latke.util.Paginator;
+import org.b3log.latke.util.Requests;
 import org.b3log.latke.util.Strings;
+import org.b3log.symphony.model.Article;
+import org.b3log.symphony.model.Comment;
 import org.b3log.symphony.model.Common;
 import org.b3log.symphony.model.Notification;
+import org.b3log.symphony.model.UserExt;
 import org.b3log.symphony.processor.advice.LoginCheck;
 import org.b3log.symphony.processor.advice.stopwatch.StopwatchEndAdvice;
 import org.b3log.symphony.processor.advice.stopwatch.StopwatchStartAdvice;
@@ -52,10 +57,11 @@ import org.json.JSONObject;
  * <li>Displays comments of my articles (/notifications/commented), GET</li>
  * <li>Displays at me (/notifications/at), GET</li>
  * <li>Displays following user's articles (/notifications/following-user), GET</li>
+ * <li>Makes article/comment read (/notification/read), GET</li>
  * </ul>
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.4.1.2, Feb 16, 2016
+ * @version 1.5.1.3, Jul 19, 2016
  * @since 0.2.5
  */
 @RequestProcessor
@@ -89,6 +95,95 @@ public class NotificationProcessor {
      */
     @Inject
     private Filler filler;
+
+    /**
+     * Makes the specified type notifications as read.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @param type the specified type: "commented"/"at"/"followingUser"
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/notification/read/{type}", method = HTTPRequestMethod.GET)
+    @Before(adviceClass = {StopwatchStartAdvice.class, LoginCheck.class})
+    @After(adviceClass = StopwatchEndAdvice.class)
+    public void makeNotificationRead(final HTTPRequestContext context, final HttpServletRequest request,
+            final HttpServletResponse response, final String type) throws Exception {
+        final JSONObject currentUser = userQueryService.getCurrentUser(request);
+        if (null == currentUser) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+
+            return;
+        }
+
+        final String userId = currentUser.optString(Keys.OBJECT_ID);
+
+        int notificationType = -1;
+
+        switch (type) {
+            case "commented":
+                notificationType = Notification.DATA_TYPE_C_COMMENTED;
+
+                break;
+            case "at":
+                notificationType = Notification.DATA_TYPE_C_AT;
+
+                break;
+            case "followingUser":
+                notificationType = Notification.DATA_TYPE_C_FOLLOWING_USER;
+
+                break;
+            default:
+                context.renderJSON(false);
+
+                return;
+        }
+
+        notificationMgmtService.makeRead(userId, notificationType);
+
+        context.renderJSON(true);
+    }
+
+    /**
+     * Makes article/comment read.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/notification/read", method = HTTPRequestMethod.POST)
+    @Before(adviceClass = {StopwatchStartAdvice.class, LoginCheck.class})
+    @After(adviceClass = StopwatchEndAdvice.class)
+    public void makeNotificationRead(final HTTPRequestContext context, final HttpServletRequest request,
+            final HttpServletResponse response) throws Exception {
+        final JSONObject currentUser = userQueryService.getCurrentUser(request);
+        if (null == currentUser) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+
+            return;
+        }
+
+        JSONObject requestJSONObject;
+        try {
+            requestJSONObject = Requests.parseRequestJSONObject(request, response);
+        } catch (final Exception e) {
+            LOGGER.error(e.getMessage());
+
+            context.renderJSON(false);
+
+            return;
+        }
+
+        final String userId = currentUser.optString(Keys.OBJECT_ID);
+        final String articleId = requestJSONObject.optString(Article.ARTICLE_T_ID);
+        final List<String> commentIds = Arrays.asList(requestJSONObject.optString(Comment.COMMENT_T_IDS).split(","));
+
+        notificationMgmtService.makeRead(userId, articleId, commentIds);
+
+        context.renderJSON(true);
+    }
 
     /**
      * Navigates notifications.
@@ -288,8 +383,6 @@ public class NotificationProcessor {
 
         fillNotificationCount(userId, dataModel);
 
-        notificationMgmtService.makeRead(commentedNotifications);
-
         final int recordCnt = result.getInt(Pagination.PAGINATION_RECORD_COUNT);
         final int pageCount = (int) Math.ceil((double) recordCnt / (double) pageSize);
 
@@ -350,8 +443,6 @@ public class NotificationProcessor {
         dataModel.put(Common.AT_NOTIFICATIONS, atNotifications);
 
         fillNotificationCount(userId, dataModel);
-
-        notificationMgmtService.makeRead(atNotifications);
 
         final int recordCnt = result.getInt(Pagination.PAGINATION_RECORD_COUNT);
         final int pageCount = (int) Math.ceil((double) recordCnt / (double) pageSize);
@@ -414,8 +505,6 @@ public class NotificationProcessor {
 
         fillNotificationCount(userId, dataModel);
 
-        notificationMgmtService.makeRead(followingUserNotifications);
-
         final int recordCnt = result.getInt(Pagination.PAGINATION_RECORD_COUNT);
         final int pageCount = (int) Math.ceil((double) recordCnt / (double) pageSize);
 
@@ -477,8 +566,6 @@ public class NotificationProcessor {
 
         fillNotificationCount(userId, dataModel);
 
-        notificationMgmtService.makeRead(broadcastNotifications);
-
         final int recordCnt = result.getInt(Pagination.PAGINATION_RECORD_COUNT);
         final int pageCount = (int) Math.ceil((double) recordCnt / (double) pageSize);
 
@@ -514,6 +601,7 @@ public class NotificationProcessor {
         }
 
         context.renderJSON(true).renderJSONValue(Notification.NOTIFICATION_T_UNREAD_COUNT,
-                notificationQueryService.getUnreadNotificationCount(currentUser.optString(Keys.OBJECT_ID)));
+                notificationQueryService.getUnreadNotificationCount(currentUser.optString(Keys.OBJECT_ID))).
+                renderJSONValue(UserExt.USER_NOTIFY_STATUS, currentUser.optInt(UserExt.USER_NOTIFY_STATUS));
     }
 }

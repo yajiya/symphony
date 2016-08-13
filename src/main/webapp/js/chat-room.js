@@ -18,7 +18,7 @@
  * @fileoverview 聊天室
  *
  * @author <a href="http://vanessa.b3log.org">Liyuan Li</a>
- * @version 1.0.0.0, Apr 12, 2016
+ * @version 1.0.0.1, Jul 4, 2016
  */
 
 /**
@@ -67,7 +67,7 @@ var ChatRoom = {
                     {name: 'ordered-list'},
                     '|',
                     {name: 'link'},
-                    {name: 'image', html: '<form id="fileUpload" method="POST" enctype="multipart/form-data"><label class="icon-image"><input type="file"/></label></form>'},
+                    {name: 'image', html: '<form id="fileUpload" method="POST" enctype="multipart/form-data"><label class="icon-upload"><input type="file"/></label></form>'},
                     '|',
                     {name: 'redo'},
                     {name: 'undo'},
@@ -78,7 +78,7 @@ var ChatRoom = {
                     "Alt-/": "autocompleteUserName",
                     "Ctrl-/": "autocompleteEmoji",
                     "Alt-S": "startAudioRecord",
-                    "Alt-E": "endAudioRecord"
+                    "Alt-R": "endAudioRecord"
                 },
                 status: false
             });
@@ -150,7 +150,7 @@ var ChatRoom = {
         };
 
         $.ajax({
-            url: "/chat-room/send",
+            url: Label.servePath + "/chat-room/send",
             type: "POST",
             cache: false,
             data: JSON.stringify(requestJSONObject),

@@ -4,13 +4,12 @@
             <div class="footer-nav fn-clear">
                 <a rel="help" href="https://hacpai.com/article/1440573175609">${aboutLabel}</a>
                 <a href="https://hacpai.com/article/1457158841475">API</a>
-                <a href="/tag/系统公告">${symAnnouncementLabel}</a>
-                <a href="/tag/Q%26A">${qnaLabel}</a>
-                <a href="/domains">${domainLabel}</a>
-                <a href="/tags">${tagLabel}</a>
-                <a rel="nofollow" href="/cr">${chatRoomLabel}</a>
+                <a href="${servePath}/tag/系统公告">${symAnnouncementLabel}</a>
+                <a href="${servePath}/tag/Q%26A">${qnaLabel}</a>
+                <a href="${servePath}/domains">${domainLabel}</a>
+                <a href="${servePath}/tags">${tagLabel}</a>
                 <a href="https://hacpai.com/article/1460083956075">${adDeliveryLabel}</a>
-                <a href="/statistic" class="last">${dataStatLabel}</a>
+                <a href="${servePath}/statistic" class="last">${dataStatLabel}</a>
 
                 <div class="fn-right">
                     <span class="ft-gray">&COPY; ${year}</span>
@@ -23,9 +22,9 @@
                     <span class="ft-gray">${maxOnlineVisitorCountLabel}</span> ${statistic.statisticMaxOnlineVisitorCount?c} &nbsp;
                     <span class="ft-gray">${memberLabel}</span> ${statistic.statisticMemberCount?c} &nbsp;
                     <span class="ft-gray">${articleLabel}</span> ${statistic.statisticArticleCount?c} &nbsp;
+                    <span class="ft-gray">${cmtLabel}</span> ${statistic.statisticCmtCount?c} &nbsp;
                     <span class="ft-gray">${domainLabel}</span> ${statistic.statisticDomainCount?c} &nbsp;
-                    <span class="ft-gray">${tagLabel}</span> ${statistic.statisticTagCount?c} &nbsp;
-                    <span class="ft-gray">${cmtLabel}</span> ${statistic.statisticCmtCount?c}
+                    <span class="ft-gray">${tagLabel}</span> ${statistic.statisticTagCount?c} 
                 </div>
                 <div class="fn-right">
                     <span class="ft-gray">Powered by <a href="http://b3log.org" target="_blank">B3log 开源</a> • 
@@ -37,14 +36,8 @@
     </div>
 </div>
 <div class="icon-up" onclick="Util.goTop()"></div>
-<script>var isLoggedIn = ${isLoggedIn?c};</script>
-<script type="text/javascript" src="${staticServePath}/js/lib/jquery/jquery.min.js"></script>
+<script type="text/javascript" src="${staticServePath}/js/lib/compress/libs.min.js"></script>
 <script type="text/javascript" src="${staticServePath}/js/common${miniPostfix}.js?${staticResourceVersion}"></script>
-<script type="text/javascript" src="${staticServePath}/js/lib/md5.js"></script>
-<script type="text/javascript" src="${staticServePath}/js/lib/jquery/jquery.linkify-1.0-min.js"></script>
-<script type="text/javascript" src="${staticServePath}/js/lib/jquery/jquery.bowknot.min.js"></script>
-<script type="text/javascript" src="${staticServePath}/js/lib/jquery/jquery.notification-1.0.5.js"></script>
-<script type="text/javascript" src="${staticServePath}/js/lib/ua-parser.min.js"></script>
 <script>
     var Label = {
         invalidPasswordLabel: "${invalidPasswordLabel}",
@@ -57,13 +50,19 @@
         collectLabel: "${collectLabel}",
         uncollectLabel: "${uncollectLabel}",
         desktopNotificationTemplateLabel: "${desktopNotificationTemplateLabel}",
-        staticServePath: "${staticServePath}"
+        servePath: "${servePath}",
+        staticServePath: "${staticServePath}",
+        isLoggedIn: ${isLoggedIn?c}
     };
-    Util.init();
+    Util.init(${isLoggedIn?c});
+    
+    <#if isLoggedIn>
+    // Init [User] channel
+    Util.initUserChannel("${wsScheme}://${serverHost}:${serverPort}${contextPath}/user-channel");
+    </#if>
 </script>
 <#if algoliaEnabled>
-<script src="${staticServePath}/js/lib/algolia/algoliasearch.min.js"></script>
-<script src="${staticServePath}/js/lib/algolia/autocomplete.jquery.min.js"></script>
+<script src="${staticServePath}/js/lib/algolia/algolia.min.js"></script>
 <script>
     Util.initSearch('${algoliaAppId}', '${algoliaSearchKey}', '${algoliaIndex}');
 </script>

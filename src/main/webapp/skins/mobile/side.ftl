@@ -1,5 +1,15 @@
 <#if ADLabel!="">
-${ADLabel}
+<div class="module">
+    <div class="module-header">
+        <h2>
+            ${sponsorLabel} 
+            <a href="https://hacpai.com/article/1460083956075" class="fn-right ft-13 ft-gray" target="_blank">${wantPutOnLabel}</a>
+        </h2>
+    </div>
+    <div class="module-panel ad fn-clear">
+        ${ADLabel}
+    </div>
+</div>
 </#if>
 <div class="module">
     <div class="module-header">
@@ -34,7 +44,7 @@ ${ADLabel}
         <ul class="tags fn-clear">
             <#list navTrendTags as trendTag>
             <li>
-                <a class="btn small" rel="nofollow" href="/tag/${trendTag.tagTitle?url('UTF-8')}">${trendTag.tagTitle}</a>
+                <a class="btn small" rel="nofollow" href="${servePath}/tag/${trendTag.tagTitle?url('UTF-8')}">${trendTag.tagTitle}</a>
             </li>
             </#list>
         </ul>
@@ -53,9 +63,11 @@ ${ADLabel}
         <ul class="module-list">
             <#list sideHotArticles as hotArticle>
             <li<#if !hotArticle_has_next> class="last"</#if>>
-                <a class="avatar-small slogan" rel="nofollow" href="/member/${hotArticle.articleAuthorName}" 
-               style="background-image:url('${hotArticle.articleAuthorThumbnailURL}-64.jpg?${hotArticle.articleAuthor.userUpdateTime?c}')"
-               title="${hotArticle.articleAuthorName}"></a>
+                <#if "someone" != hotArticle.articleAuthorName>
+                <a rel="nofollow" href="${servePath}/member/${hotArticle.articleAuthorName}"></#if>
+                    <span class="avatar-small slogan"
+                          style="background-image:url('${hotArticle.articleAuthorThumbnailURL}?imageView2/1/w/64/h/64/interlace/0/q/80')"></span>
+                <#if "someone" != hotArticle.articleAuthorName></a></#if>
                 <a rel="nofollow" class="title" title="${hotArticle.articleTitle}" href="${hotArticle.articlePermalink}">${hotArticle.articleTitleEmoj}</a>
             </li>
             </#list>
@@ -67,7 +79,7 @@ ${ADLabel}
 <div class="module">
     <div class="module-header">
         <h2>
-            ${tagLabel}
+            ${recommendedTags}
         </h2>
     </div>
     <div class="module-panel">
@@ -76,7 +88,7 @@ ${ADLabel}
             <li>
                 <span>
                     <#if tag.tagIconPath!="">
-                    <img src="${staticServePath}/images/tags/${tag.tagIconPath}" alt="${tag.tagTitle}" /></#if><a rel="nofollow" href="/tag/${tag.tagTitle?url('utf-8')}">${tag.tagTitle}</a>
+                    <img src="${staticServePath}/images/tags/${tag.tagIconPath}" alt="${tag.tagTitle}" /></#if><a rel="nofollow" href="${servePath}/tag/${tag.tagTitle?url('utf-8')}">${tag.tagTitle}</a>
                 </span>
                 <div<#if tag.tagDescription == ''> style="width:auto"</#if>>
                     <div>${tag.tagDescription}</div>

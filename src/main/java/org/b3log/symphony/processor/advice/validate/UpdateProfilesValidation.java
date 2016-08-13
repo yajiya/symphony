@@ -43,7 +43,7 @@ import org.json.JSONObject;
  * Validates for user profiles update.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 2.1.1.4, Mar 28, 2016
+ * @version 2.2.2.4, Jul 27, 2016
  * @since 0.2.0
  */
 @Named
@@ -55,6 +55,11 @@ public class UpdateProfilesValidation extends BeforeRequestProcessAdvice {
      */
     @Inject
     private LangPropsService langPropsService;
+
+    /**
+     * Max user nickname length.
+     */
+    public static final int MAX_USER_NICKNAME_LENGTH = 20;
 
     /**
      * Max user URL length.
@@ -95,6 +100,11 @@ public class UpdateProfilesValidation extends BeforeRequestProcessAdvice {
                     langPropsService.get("invalidUserQQLabel")));
         }
 
+        final String userNickname = requestJSONObject.optString(UserExt.USER_NICKNAME);
+        if (!Strings.isEmptyOrNull(userNickname) && userNickname.length() > MAX_USER_NICKNAME_LENGTH) {
+            throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("invalidUserNicknameLabel")));
+        }
+
         final String userIntro = requestJSONObject.optString(UserExt.USER_INTRO);
         if (!Strings.isEmptyOrNull(userIntro) && userIntro.length() > MAX_USER_INTRO_LENGTH) {
             throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("invalidUserIntroLabel")));
@@ -127,11 +137,17 @@ public class UpdateProfilesValidation extends BeforeRequestProcessAdvice {
                     throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, tagErrMsg));
                 }
 
+                if (Tag.containsWhiteListTags(tagTitle)) {
+                    tagBuilder.append(tagTitle).append(",");
+
+                    continue;
+                }
+
                 if (!Tag.TAG_TITLE_PATTERN.matcher(tagTitle).matches()) {
                     throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, tagErrMsg));
                 }
 
-                if (Strings.isEmptyOrNull(tagTitle) || tagTitle.length() > Tag.MAX_TAG_TITLE_LENGTH || tagTitle.length() < 1) {
+                if (tagTitle.length() > Tag.MAX_TAG_TITLE_LENGTH) {
                     throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, tagErrMsg));
                 }
 

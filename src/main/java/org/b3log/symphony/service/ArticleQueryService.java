@@ -24,6 +24,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 import org.apache.commons.lang.StringUtils;
@@ -57,6 +59,7 @@ import org.b3log.symphony.model.Common;
 import org.b3log.symphony.model.Revision;
 import org.b3log.symphony.model.Tag;
 import org.b3log.symphony.model.UserExt;
+import org.b3log.symphony.processor.advice.validate.UserRegisterValidation;
 import org.b3log.symphony.processor.channel.ArticleChannel;
 import org.b3log.symphony.repository.ArticleRepository;
 import org.b3log.symphony.repository.CommentRepository;
@@ -74,13 +77,16 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
+import org.jsoup.nodes.Element;
+import org.jsoup.parser.Parser;
 import org.jsoup.safety.Whitelist;
+import org.jsoup.select.Elements;
 
 /**
  * Article query service.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 2.15.11.21, May 6, 2016
+ * @version 2.20.14.26, Aug 13, 2016
  * @since 0.2.0
  */
 @Service
@@ -902,20 +908,35 @@ public class ArticleQueryService {
      * Gets the user articles with the specified user id, page number and page size.
      *
      * @param userId the specified user id
+     * @param anonymous the specified article anonymous
      * @param currentPageNum the specified page number
      * @param pageSize the specified page size
      * @return user articles, return an empty list if not found
      * @throws ServiceException service exception
      */
-    public List<JSONObject> getUserArticles(final String userId, final int currentPageNum, final int pageSize) throws ServiceException {
+    public List<JSONObject> getUserArticles(final String userId, final int anonymous,
+            final int currentPageNum, final int pageSize) throws ServiceException {
         final Query query = new Query().addSort(Article.ARTICLE_CREATE_TIME, SortDirection.DESCENDING)
                 .setCurrentPageNum(currentPageNum).setPageSize(pageSize).
                 setFilter(CompositeFilterOperator.and(
                         new PropertyFilter(Article.ARTICLE_AUTHOR_ID, FilterOperator.EQUAL, userId),
+                        new PropertyFilter(Article.ARTICLE_ANONYMOUS, FilterOperator.EQUAL, anonymous),
                         new PropertyFilter(Article.ARTICLE_STATUS, FilterOperator.EQUAL, Article.ARTICLE_STATUS_C_VALID)));
         try {
             final JSONObject result = articleRepository.get(query);
             final List<JSONObject> ret = CollectionUtils.<JSONObject>jsonArrayToList(result.optJSONArray(Keys.RESULTS));
+            if (ret.isEmpty()) {
+                return ret;
+            }
+
+            final JSONObject pagination = result.optJSONObject(Pagination.PAGINATION);
+            final int recordCount = pagination.optInt(Pagination.PAGINATION_RECORD_COUNT);
+            final int pageCount = pagination.optInt(Pagination.PAGINATION_PAGE_COUNT);
+
+            final JSONObject first = ret.get(0);
+            first.put(Pagination.PAGINATION_RECORD_COUNT, recordCount);
+            first.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
+
             organizeArticles(ret);
 
             return ret;
@@ -926,13 +947,13 @@ public class ArticleQueryService {
     }
 
     /**
-     * Gets hot articles with the specified fetch size.
+     * Gets side hot articles with the specified fetch size.
      *
      * @param fetchSize the specified fetch size
      * @return recent articles, returns an empty list if not found
      * @throws ServiceException service exception
      */
-    public List<JSONObject> getHotArticles(final int fetchSize) throws ServiceException {
+    public List<JSONObject> getSideHotArticles(final int fetchSize) throws ServiceException {
         final String id = String.valueOf(DateUtils.addDays(new Date(), -7).getTime());
 
         try {
@@ -988,6 +1009,20 @@ public class ArticleQueryService {
     }
 
     /**
+     * Makes recent article showing filters.
+     *
+     * @return filter the article showing to user
+     */
+    private CompositeFilter makeRecentArticleShowingFilter() {
+        final List<Filter> filters = new ArrayList<Filter>();
+        filters.add(new PropertyFilter(Article.ARTICLE_STATUS, FilterOperator.EQUAL, Article.ARTICLE_STATUS_C_VALID));
+        filters.add(new PropertyFilter(Article.ARTICLE_TYPE, FilterOperator.NOT_EQUAL, Article.ARTICLE_TYPE_C_DISCUSSION));
+        filters.add(new PropertyFilter(Article.ARTICLE_TAGS, FilterOperator.NOT_LIKE, "B3log%"));
+        filters.add(new PropertyFilter(Article.ARTICLE_TAGS, FilterOperator.NOT_LIKE, "Sandbox%"));
+        return new CompositeFilter(CompositeFilterOperator.AND, filters);
+    }
+
+    /**
      * Makes the recent (sort by create time) articles with the specified fetch size.
      *
      * @param currentPageNum the specified current page number
@@ -995,12 +1030,30 @@ public class ArticleQueryService {
      * @return recent articles query
      */
     private Query makeRecentQuery(final int currentPageNum, final int fetchSize) {
-        final Query query = new Query()
+        final Query ret = new Query()
                 .addSort(Article.ARTICLE_STICK, SortDirection.DESCENDING)
                 .addSort(Keys.OBJECT_ID, SortDirection.DESCENDING)
                 .setPageSize(fetchSize).setCurrentPageNum(currentPageNum);
-        query.setFilter(makeArticleShowingFilter());
-        return query;
+        ret.setFilter(makeRecentArticleShowingFilter());
+        ret.addProjection(Keys.OBJECT_ID, String.class).
+                addProjection(Article.ARTICLE_STICK, Long.class).
+                addProjection(Article.ARTICLE_CREATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_UPDATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_LATEST_CMT_TIME, Long.class).
+                addProjection(Article.ARTICLE_AUTHOR_ID, String.class).
+                addProjection(Article.ARTICLE_TITLE, String.class).
+                addProjection(Article.ARTICLE_STATUS, Integer.class).
+                addProjection(Article.ARTICLE_VIEW_CNT, Integer.class).
+                addProjection(Article.ARTICLE_TYPE, Integer.class).
+                addProjection(Article.ARTICLE_PERMALINK, String.class).
+                addProjection(Article.ARTICLE_TAGS, String.class).
+                addProjection(Article.ARTICLE_LATEST_CMTER_NAME, String.class).
+                addProjection(Article.ARTICLE_SYNC_TO_CLIENT, Boolean.class).
+                addProjection(Article.ARTICLE_COMMENT_CNT, Integer.class).
+                addProjection(Article.ARTICLE_ANONYMOUS, Integer.class).
+                addProjection(Article.ARTICLE_PERFECT, Integer.class);
+
+        return ret;
     }
 
     /**
@@ -1049,11 +1102,15 @@ public class ArticleQueryService {
         JSONObject result = null;
 
         try {
+            Stopwatchs.start("Query recent articles");
+
             result = articleRepository.get(query);
         } catch (final RepositoryException e) {
             LOGGER.log(Level.ERROR, "Gets articles failed", e);
 
             throw new ServiceException(e);
+        } finally {
+            Stopwatchs.end();
         }
 
         final int pageCount = result.optJSONObject(Pagination.PAGINATION).optInt(Pagination.PAGINATION_PAGE_COUNT);
@@ -1078,27 +1135,75 @@ public class ArticleQueryService {
             throw new ServiceException(e);
         }
 
-        final Integer participantsCnt = Symphonys.getInt("latestArticleParticipantsCnt");
-        genParticipants(articles, participantsCnt);
-
+        //final Integer participantsCnt = Symphonys.getInt("latestArticleParticipantsCnt");
+        //genParticipants(articles, participantsCnt);
         ret.put(Article.ARTICLES, (Object) articles);
 
         return ret;
     }
 
     /**
-     * Gets the index articles with the specified fetch size.
+     * Gets the index recent (sort by create time) articles.
      *
-     * @param fetchSize the specified fetch size
      * @return recent articles, returns an empty list if not found
      * @throws ServiceException service exception
      */
-    public List<JSONObject> getIndexArticles(final int fetchSize) throws ServiceException {
+    public List<JSONObject> getIndexRecentArticles() throws ServiceException {
+        final Query query = new Query()
+                .addSort(Article.ARTICLE_STICK, SortDirection.DESCENDING)
+                .addSort(Keys.OBJECT_ID, SortDirection.DESCENDING)
+                .setPageSize(Symphonys.getInt("indexListCnt")).setCurrentPageNum(1).setPageCount(1);
+        query.setFilter(makeRecentArticleShowingFilter());
+        query.addProjection(Keys.OBJECT_ID, String.class).
+                addProjection(Article.ARTICLE_STICK, Long.class).
+                addProjection(Article.ARTICLE_CREATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_UPDATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_LATEST_CMT_TIME, Long.class).
+                addProjection(Article.ARTICLE_AUTHOR_ID, String.class).
+                addProjection(Article.ARTICLE_TITLE, String.class).
+                addProjection(Article.ARTICLE_STATUS, Integer.class).
+                addProjection(Article.ARTICLE_VIEW_CNT, Integer.class).
+                addProjection(Article.ARTICLE_TYPE, Integer.class).
+                addProjection(Article.ARTICLE_PERMALINK, String.class).
+                addProjection(Article.ARTICLE_TAGS, String.class).
+                addProjection(Article.ARTICLE_LATEST_CMTER_NAME, String.class).
+                addProjection(Article.ARTICLE_SYNC_TO_CLIENT, Boolean.class).
+                addProjection(Article.ARTICLE_COMMENT_CNT, Integer.class).
+                addProjection(Article.ARTICLE_ANONYMOUS, Integer.class).
+                addProjection(Article.ARTICLE_PERFECT, Integer.class);
+
+        try {
+            List<JSONObject> ret;
+            Stopwatchs.start("Query index recent articles");
+            try {
+                final JSONObject result = articleRepository.get(query);
+                ret = CollectionUtils.<JSONObject>jsonArrayToList(result.optJSONArray(Keys.RESULTS));
+            } finally {
+                Stopwatchs.end();
+            }
+
+            organizeArticles(ret);
+
+            return ret;
+        } catch (final RepositoryException e) {
+            LOGGER.log(Level.ERROR, "Gets index recent articles failed", e);
+            throw new ServiceException(e);
+        }
+    }
+
+    /**
+     * Gets the hot articles with the specified fetch size.
+     *
+     * @param fetchSize the specified fetch size
+     * @return hot articles, returns an empty list if not found
+     * @throws ServiceException service exception
+     */
+    public List<JSONObject> getHotArticles(final int fetchSize) throws ServiceException {
         final Query query = makeTopQuery(1, fetchSize);
 
         try {
             List<JSONObject> ret;
-            Stopwatchs.start("Query articles");
+            Stopwatchs.start("Query hot articles");
             try {
                 final JSONObject result = articleRepository.get(query);
                 ret = CollectionUtils.<JSONObject>jsonArrayToList(result.optJSONArray(Keys.RESULTS));
@@ -1128,6 +1233,175 @@ public class ArticleQueryService {
             return ret;
         } catch (final RepositoryException e) {
             LOGGER.log(Level.ERROR, "Gets index articles failed", e);
+            throw new ServiceException(e);
+        }
+    }
+
+    /**
+     * Gets the perfect articles with the specified fetch size.
+     *
+     * @param currentPageNum the specified current page number
+     * @param fetchSize the specified fetch size
+     * @return for example,      <pre>
+     * {
+     *     "pagination": {
+     *         "paginationPageCount": 100,
+     *         "paginationPageNums": [1, 2, 3, 4, 5]
+     *     },
+     *     "articles": [{
+     *         "oId": "",
+     *         "articleTitle": "",
+     *         "articleContent": "",
+     *         ....
+     *      }, ....]
+     * }
+     * </pre>
+     * @throws ServiceException service exception
+     */
+    public JSONObject getPerfectArticles(final int currentPageNum, final int fetchSize) throws ServiceException {
+        final Query query = new Query()
+                .addSort(Keys.OBJECT_ID, SortDirection.DESCENDING)
+                .setCurrentPageNum(currentPageNum).setPageSize(fetchSize);
+        query.setFilter(new PropertyFilter(Article.ARTICLE_PERFECT, FilterOperator.EQUAL, Article.ARTICLE_PERFECT_C_PERFECT));
+
+        final JSONObject ret = new JSONObject();
+
+        JSONObject result = null;
+
+        try {
+            Stopwatchs.start("Query recent articles");
+
+            result = articleRepository.get(query);
+        } catch (final RepositoryException e) {
+            LOGGER.log(Level.ERROR, "Gets articles failed", e);
+
+            throw new ServiceException(e);
+        } finally {
+            Stopwatchs.end();
+        }
+
+        final int pageCount = result.optJSONObject(Pagination.PAGINATION).optInt(Pagination.PAGINATION_PAGE_COUNT);
+
+        final JSONObject pagination = new JSONObject();
+        ret.put(Pagination.PAGINATION, pagination);
+
+        final int windowSize = Symphonys.getInt("latestArticlesWindowSize");
+
+        final List<Integer> pageNums = Paginator.paginate(currentPageNum, fetchSize, pageCount, windowSize);
+        pagination.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
+        pagination.put(Pagination.PAGINATION_PAGE_NUMS, (Object) pageNums);
+
+        final JSONArray data = result.optJSONArray(Keys.RESULTS);
+        final List<JSONObject> articles = CollectionUtils.<JSONObject>jsonArrayToList(data);
+
+        try {
+            organizeArticles(articles);
+        } catch (final RepositoryException e) {
+            LOGGER.log(Level.ERROR, "Organizes articles failed", e);
+
+            throw new ServiceException(e);
+        }
+
+        //final Integer participantsCnt = Symphonys.getInt("latestArticleParticipantsCnt");
+        //genParticipants(articles, participantsCnt);
+        ret.put(Article.ARTICLES, (Object) articles);
+
+        return ret;
+    }
+
+    /**
+     * Gets the index hot articles with the specified fetch size.
+     *
+     * @return hot articles, returns an empty list if not found
+     * @throws ServiceException service exception
+     */
+    public List<JSONObject> getIndexHotArticles() throws ServiceException {
+        final Query query = new Query()
+                .addSort(Article.REDDIT_SCORE, SortDirection.DESCENDING)
+                .addSort(Article.ARTICLE_LATEST_CMT_TIME, SortDirection.DESCENDING)
+                .setPageCount(1).setPageSize(Symphonys.getInt("indexListCnt")).setCurrentPageNum(1);
+        query.setFilter(makeArticleShowingFilter());
+        query.addProjection(Keys.OBJECT_ID, String.class).
+                addProjection(Article.ARTICLE_STICK, Long.class).
+                addProjection(Article.ARTICLE_CREATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_UPDATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_LATEST_CMT_TIME, Long.class).
+                addProjection(Article.ARTICLE_AUTHOR_ID, String.class).
+                addProjection(Article.ARTICLE_TITLE, String.class).
+                addProjection(Article.ARTICLE_STATUS, Integer.class).
+                addProjection(Article.ARTICLE_VIEW_CNT, Integer.class).
+                addProjection(Article.ARTICLE_TYPE, Integer.class).
+                addProjection(Article.ARTICLE_PERMALINK, String.class).
+                addProjection(Article.ARTICLE_TAGS, String.class).
+                addProjection(Article.ARTICLE_LATEST_CMTER_NAME, String.class).
+                addProjection(Article.ARTICLE_SYNC_TO_CLIENT, Boolean.class).
+                addProjection(Article.ARTICLE_COMMENT_CNT, Integer.class).
+                addProjection(Article.ARTICLE_ANONYMOUS, Integer.class).
+                addProjection(Article.ARTICLE_PERFECT, Integer.class);
+
+        try {
+            List<JSONObject> ret;
+            Stopwatchs.start("Query index hot articles");
+            try {
+                final JSONObject result = articleRepository.get(query);
+                ret = CollectionUtils.<JSONObject>jsonArrayToList(result.optJSONArray(Keys.RESULTS));
+            } finally {
+                Stopwatchs.end();
+            }
+
+            organizeArticles(ret);
+
+            return ret;
+        } catch (final RepositoryException e) {
+            LOGGER.log(Level.ERROR, "Gets index hot articles failed", e);
+            throw new ServiceException(e);
+        }
+    }
+
+    /**
+     * Gets the index perfect articles with the specified fetch size.
+     *
+     * @return hot articles, returns an empty list if not found
+     * @throws ServiceException service exception
+     */
+    public List<JSONObject> getIndexPerfectArticles() throws ServiceException {
+        final Query query = new Query()
+                .addSort(Keys.OBJECT_ID, SortDirection.DESCENDING)
+                .setPageCount(1).setPageSize(Symphonys.getInt("indexListCnt")).setCurrentPageNum(1);
+        query.setFilter(new PropertyFilter(Article.ARTICLE_PERFECT, FilterOperator.EQUAL, Article.ARTICLE_PERFECT_C_PERFECT));
+        query.addProjection(Keys.OBJECT_ID, String.class).
+                addProjection(Article.ARTICLE_STICK, Long.class).
+                addProjection(Article.ARTICLE_CREATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_UPDATE_TIME, Long.class).
+                addProjection(Article.ARTICLE_LATEST_CMT_TIME, Long.class).
+                addProjection(Article.ARTICLE_AUTHOR_ID, String.class).
+                addProjection(Article.ARTICLE_TITLE, String.class).
+                addProjection(Article.ARTICLE_STATUS, Integer.class).
+                addProjection(Article.ARTICLE_VIEW_CNT, Integer.class).
+                addProjection(Article.ARTICLE_TYPE, Integer.class).
+                addProjection(Article.ARTICLE_PERMALINK, String.class).
+                addProjection(Article.ARTICLE_TAGS, String.class).
+                addProjection(Article.ARTICLE_LATEST_CMTER_NAME, String.class).
+                addProjection(Article.ARTICLE_SYNC_TO_CLIENT, Boolean.class).
+                addProjection(Article.ARTICLE_COMMENT_CNT, Integer.class).
+                addProjection(Article.ARTICLE_ANONYMOUS, Integer.class).
+                addProjection(Article.ARTICLE_PERFECT, Integer.class);
+
+        try {
+            List<JSONObject> ret;
+            Stopwatchs.start("Query index perfect articles");
+            try {
+                final JSONObject result = articleRepository.get(query);
+                ret = CollectionUtils.<JSONObject>jsonArrayToList(result.optJSONArray(Keys.RESULTS));
+            } finally {
+                Stopwatchs.end();
+            }
+
+            organizeArticles(ret);
+
+            return ret;
+        } catch (final RepositoryException e) {
+            LOGGER.log(Level.ERROR, "Gets index perfect articles failed", e);
             throw new ServiceException(e);
         }
     }
@@ -1261,6 +1535,7 @@ public class ArticleQueryService {
      * <li>generates article view count display format(1k+/1.5k+...)</li>
      * <li>generates time ago text</li>
      * <li>generates stick remains minutes</li>
+     * <li>anonymous process</li>
      * </ul>
      *
      * @param articles the specified articles
@@ -1289,6 +1564,7 @@ public class ArticleQueryService {
      * <li>generates article view count display format(1k+/1.5k+...)</li>
      * <li>generates time ago text</li>
      * <li>generates stick remains minutes</li>
+     * <li>anonymous process</li>
      * </ul>
      *
      * @param article the specified article
@@ -1335,6 +1611,13 @@ public class ArticleQueryService {
         } else {
             article.put(Article.ARTICLE_T_STICK_REMAINS, 0);
         }
+
+        String articleLatestCmterName = article.optString(Article.ARTICLE_LATEST_CMTER_NAME);
+        if (StringUtils.isNotBlank(articleLatestCmterName)
+                && UserRegisterValidation.invalidUserName(articleLatestCmterName)) {
+            articleLatestCmterName = UserExt.ANONYMOUS_USER_NAME;
+            article.put(Article.ARTICLE_LATEST_CMTER_NAME, articleLatestCmterName);
+        }
     }
 
     /**
@@ -1360,11 +1643,15 @@ public class ArticleQueryService {
         final String authorId = article.optString(Article.ARTICLE_AUTHOR_ID);
 
         final JSONObject author = userRepository.get(authorId);
-
-        article.put(Article.ARTICLE_T_AUTHOR_THUMBNAIL_URL, avatarQueryService.getAvatarURLByUser(author));
         article.put(Article.ARTICLE_T_AUTHOR, author);
 
-        article.put(Article.ARTICLE_T_AUTHOR_NAME, author.optString(User.USER_NAME));
+        if (Article.ARTICLE_ANONYMOUS_C_ANONYMOUS == article.optInt(Article.ARTICLE_ANONYMOUS)) {
+            article.put(Article.ARTICLE_T_AUTHOR_NAME, UserExt.ANONYMOUS_USER_NAME);
+            article.put(Article.ARTICLE_T_AUTHOR_THUMBNAIL_URL, AvatarQueryService.DEFAULT_AVATAR_URL);
+        } else {
+            article.put(Article.ARTICLE_T_AUTHOR_NAME, author.optString(User.USER_NAME));
+            article.put(Article.ARTICLE_T_AUTHOR_THUMBNAIL_URL, avatarQueryService.getAvatarURLByUser(author));
+        }
     }
 
     /**
@@ -1486,6 +1773,7 @@ public class ArticleQueryService {
      * <li>Generates emotion images</li>
      * <li>Generates article link with article id</li>
      * <li>Generates article abstract (preview content)</li>
+     * <li>Generates article ToC</li>
      * </ul>
      *
      * @param article the specified article, for example,      <pre>
@@ -1510,7 +1798,7 @@ public class ArticleQueryService {
                 article.put(Article.ARTICLE_TITLE, langPropsService.get("articleTitleBlockLabel"));
                 article.put(Article.ARTICLE_CONTENT, langPropsService.get("articleContentBlockLabel"));
                 article.put(Article.ARTICLE_T_PREVIEW_CONTENT, langPropsService.get("articleContentBlockLabel"));
-
+                article.put(Article.ARTICLE_T_TOC, "");
                 article.put(Article.ARTICLE_REWARD_CONTENT, "");
                 article.put(Article.ARTICLE_REWARD_POINT, 0);
 
@@ -1548,6 +1836,7 @@ public class ArticleQueryService {
 
                     article.put(Article.ARTICLE_REWARD_CONTENT, "");
                     article.put(Article.ARTICLE_REWARD_POINT, 0);
+                    article.put(Article.ARTICLE_T_TOC, "");
 
                     return;
                 }
@@ -1580,7 +1869,50 @@ public class ArticleQueryService {
 
             markdown(article);
 
+            final String articleId = article.optString(Keys.OBJECT_ID);
+
+            // MP3 player render
+            final StringBuffer contentBuilder = new StringBuffer();
+            articleContent = article.optString(Article.ARTICLE_CONTENT);
+            final String MP3_URL_REGEX = "<p><a href.*\\.mp3.*</a>( )*</p>";
+            final Pattern p = Pattern.compile(MP3_URL_REGEX);
+            final Matcher m = p.matcher(articleContent);
+
+            int i = 0;
+            while (m.find()) {
+                String mp3URL = m.group();
+                String mp3Name = StringUtils.substringBetween(mp3URL, "\">", ".mp3</a>");
+                mp3URL = StringUtils.substringBetween(mp3URL, "href=\"", "\" rel=");
+                final String playerId = "player" + articleId + i++;
+
+                m.appendReplacement(contentBuilder, "<div id=\"" + playerId + "\" class=\"aplayer\"></div>\n"
+                        + "<script>\n"
+                        + "var " + playerId + " = new APlayer({\n"
+                        + "    element: document.getElementById('" + playerId + "'),\n"
+                        + "    narrow: false,\n"
+                        + "    autoplay: false,\n"
+                        + "    showlrc: false,\n"
+                        + "    mutex: true,\n"
+                        + "    theme: '#e6d0b2',\n"
+                        + "    music: {\n"
+                        + "        title: '" + mp3Name + "',\n"
+                        + "        author: '" + mp3URL + "',\n"
+                        + "        url: '" + mp3URL + "',\n"
+                        + "        pic: '" + Latkes.getStaticServePath() + "/js/lib/aplayer/default.jpg'\n"
+                        + "    }\n"
+                        + "});\n"
+                        + playerId + ".init();\n"
+                        + "</script>");
+            }
+            m.appendTail(contentBuilder);
+
+            articleContent = contentBuilder.toString();
+            articleContent = articleContent.replaceFirst("<div id=\"player",
+                    "<script src=\"" + Latkes.getStaticServePath() + "/js/lib/aplayer/APlayer.min.js\"></script>\n<div id=\"player");
+
+            article.put(Article.ARTICLE_CONTENT, articleContent);
             article.put(Article.ARTICLE_T_PREVIEW_CONTENT, getArticleMetaDesc(article));
+            article.put(Article.ARTICLE_T_TOC, getArticleToC(article));
         } finally {
             Stopwatchs.end();
         }
@@ -1625,6 +1957,7 @@ public class ArticleQueryService {
         final int pageSize = requestJSONObject.optInt(Pagination.PAGINATION_PAGE_SIZE);
         final int windowSize = requestJSONObject.optInt(Pagination.PAGINATION_WINDOW_SIZE);
         final Query query = new Query().setCurrentPageNum(currentPageNum).setPageSize(pageSize).
+                addSort(Article.ARTICLE_STICK, SortDirection.DESCENDING).
                 addSort(Article.ARTICLE_UPDATE_TIME, SortDirection.DESCENDING);
         for (final Map.Entry<String, Class<?>> articleField : articleFields.entrySet()) {
             query.addProjection(articleField.getKey(), articleField.getValue());
@@ -1741,5 +2074,49 @@ public class ArticleQueryService {
         } finally {
             Stopwatchs.end();
         }
+    }
+
+    /**
+     * Gets ToC of the specified article.
+     *
+     * @param article the specified article
+     * @return ToC
+     */
+    private String getArticleToC(final JSONObject article) {
+        String content = article.optString(Article.ARTICLE_CONTENT);
+
+        if (!StringUtils.contains(content, "#")
+                || Article.ARTICLE_TYPE_C_THOUGHT == article.optInt(Article.ARTICLE_TYPE)) {
+            return "";
+        }
+
+        final Document doc = Jsoup.parse(content, StringUtils.EMPTY, Parser.htmlParser());
+        doc.outputSettings().prettyPrint(false);
+
+        final StringBuilder listBuilder = new StringBuilder();
+
+        final Elements hs = doc.select("h1, h2, h3, h4, h5");
+
+        if (hs.isEmpty()) {
+            return "";
+        }
+
+        listBuilder.append("<ul class=\"article-toc\">");
+        for (int i = 0; i < hs.size(); i++) {
+            final Element element = hs.get(i);
+            final String tagName = element.tagName().toLowerCase();
+            final String text = element.text();
+            final String id = "toc_" + tagName + "_" + i;
+
+            element.before("<span id='" + id + "'></span>");
+
+            listBuilder.append("<li class='toc-").append(tagName).append("'><a href='#").append(id).append("'>").append(text).append(
+                    "</a></li>");
+        }
+        listBuilder.append("</ul>");
+
+        article.put(Article.ARTICLE_CONTENT, doc.select("body").html());
+
+        return listBuilder.toString();
     }
 }

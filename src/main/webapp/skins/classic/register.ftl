@@ -19,7 +19,7 @@
                                     <label for="userName">${userNameLabel}</label>
                                 </td>
                                 <td width="165">
-                                    <input autofocus="autofocus" type="text" id="userName" />
+                                    <input autofocus="autofocus" type="text" id="userName" placeholder="${userNamePlaceholderLabel}" />
                                 </td>
                             </tr>
                             <tr>
@@ -27,7 +27,15 @@
                                     <label for="userEmail">${emailLabel}</label>
                                 </td>
                                 <td>
-                                    <input type="text" id="userEmail" />
+                                    <input type="text" id="userEmail" placeholder="${emailPlaceholderLabel}" />
+                                </td>
+                            </tr>
+                            <tr <#if "2" != miscAllowRegister>class="fn-none"</#if>>
+                                <td>
+                                    <label for="invitecode">${invitecodeLabel}</label>
+                                </td>
+                                <td>
+                                    <input type="text" id="invitecode" placeholder="${invitecodePlaceholderLabel}"/>
                                 </td>
                             </tr>
                             <tr>
@@ -49,14 +57,13 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="intro fn-flex-1  content-reset">
+                <div class="intro fn-flex-1 content-reset">
                     ${introLabel}
                 </div>
             </div>
         </div>
         <#include "footer.ftl">
         <script type="text/javascript" src="${staticServePath}/js/register${miniPostfix}.js?${staticResourceVersion}"></script>
-        <script type="text/javascript" src="${staticServePath}/js/lib/md5.js"></script>
         <script>
                                         Register.init();
                                         Label.userNameErrorLabel = "${userNameErrorLabel}";

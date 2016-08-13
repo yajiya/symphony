@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Singleton;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.b3log.latke.Keys;
@@ -50,10 +51,11 @@ import org.jsoup.Jsoup;
  * Sends an article notification to the user who be &#64;username in the article content.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.1.1.6, Feb 26, 2016
+ * @version 1.2.2.8, Jul 24, 2016
  * @since 0.2.0
  */
 @Named
+@Singleton
 public class ArticleNotifier extends AbstractEventListener<JSONObject> {
 
     /**
@@ -132,7 +134,8 @@ public class ArticleNotifier extends AbstractEventListener<JSONObject> {
             }
 
             // 'FollowingUser' Notification
-            if (Article.ARTICLE_TYPE_C_DISCUSSION != originalArticle.optInt(Article.ARTICLE_TYPE)) {
+            if (Article.ARTICLE_TYPE_C_DISCUSSION != originalArticle.optInt(Article.ARTICLE_TYPE)
+                    && Article.ARTICLE_ANONYMOUS_C_PUBLIC == originalArticle.optInt(Article.ARTICLE_ANONYMOUS)) {
                 final JSONObject followerUsersResult = followQueryService.getFollowerUsers(articleAuthorId, 1, Integer.MAX_VALUE);
                 @SuppressWarnings("unchecked")
                 final List<JSONObject> followerUsers = (List) followerUsersResult.opt(Keys.RESULTS);
@@ -156,15 +159,22 @@ public class ArticleNotifier extends AbstractEventListener<JSONObject> {
             final String articlePermalink = Latkes.getServePath() + originalArticle.optString(Article.ARTICLE_PERMALINK);
 
             final JSONObject timeline = new JSONObject();
+            timeline.put(Common.USER_ID, articleAuthorId);
             timeline.put(Common.TYPE, Article.ARTICLE);
             String content = langPropsService.get("timelineArticleLabel");
-            content = content.replace("{user}", "<a target='_blank' rel='nofollow' href='" + Latkes.getServePath()
-                    + "/member/" + articleAuthorName + "'>" + articleAuthorName + "</a>")
-                    .replace("{article}", "<a target='_blank' rel='nofollow' href='" + articlePermalink
-                            + "'>" + articleTitle + "</a>");
+
+            if (Article.ARTICLE_ANONYMOUS_C_PUBLIC == originalArticle.optInt(Article.ARTICLE_ANONYMOUS)) {
+                content = content.replace("{user}", "<a target='_blank' rel='nofollow' href='" + Latkes.getServePath()
+                        + "/member/" + articleAuthorName + "'>" + articleAuthorName + "</a>");
+
+            } else {
+                content = content.replace("{user}", UserExt.ANONYMOUS_USER_NAME);
+            }
+            content = content.replace("{article}", "<a target='_blank' rel='nofollow' href='" + articlePermalink
+                    + "'>" + articleTitle + "</a>");
             content = Emotions.convert(content);
             timeline.put(Common.CONTENT, content);
-            
+
             timelineMgmtService.addTimeline(timeline);
 
             // 'Broadcast' Notification
@@ -198,7 +208,7 @@ public class ArticleNotifier extends AbstractEventListener<JSONObject> {
                         notificationMgmtService.addBroadcastNotification(notification);
                     }
 
-                    LOGGER.info("City broadcast [" + users.length() + "]");
+                    LOGGER.info("City [" + city + "] broadcast [users=" + users.length() + "]");
                 }
             }
         } catch (final Exception e) {

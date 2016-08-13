@@ -15,11 +15,15 @@
  */
 package org.b3log.symphony.service;
 
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.net.URL;
 import java.util.Date;
 import java.util.List;
 import java.util.Random;
 import javax.inject.Inject;
+import jodd.util.Base64;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.time.DateFormatUtils;
 import org.apache.commons.lang.time.DateUtils;
@@ -28,6 +32,12 @@ import org.b3log.latke.Latkes;
 import org.b3log.latke.logging.Level;
 import org.b3log.latke.logging.Logger;
 import org.b3log.latke.model.User;
+import org.b3log.latke.repository.CompositeFilterOperator;
+import org.b3log.latke.repository.FilterOperator;
+import org.b3log.latke.repository.PropertyFilter;
+import org.b3log.latke.repository.Query;
+import org.b3log.latke.repository.RepositoryException;
+import org.b3log.latke.repository.Transaction;
 import org.b3log.latke.service.LangPropsService;
 import org.b3log.latke.service.ServiceException;
 import org.b3log.latke.service.annotation.Service;
@@ -36,7 +46,9 @@ import org.b3log.symphony.model.Common;
 import org.b3log.symphony.model.Liveness;
 import org.b3log.symphony.model.Pointtransfer;
 import org.b3log.symphony.model.UserExt;
+import org.b3log.symphony.repository.CharacterRepository;
 import org.b3log.symphony.util.Results;
+import org.b3log.symphony.util.Tesseracts;
 import org.json.JSONObject;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -45,7 +57,7 @@ import org.jsoup.nodes.Document;
  * Activity management service.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.3.6.2, Apr 14, 2016
+ * @version 1.4.9.3, Aug 1, 2016
  * @since 1.3.0
  */
 @Service
@@ -55,6 +67,12 @@ public class ActivityMgmtService {
      * Logger.
      */
     private static final Logger LOGGER = Logger.getLogger(ActivityMgmtService.class.getName());
+
+    /**
+     * Character repository.
+     */
+    @Inject
+    private CharacterRepository characterRepository;
 
     /**
      * Pointtransfer query service.
@@ -110,6 +128,117 @@ public class ActivityMgmtService {
     @Inject
     private LivenessQueryService livenessQueryService;
 
+    public synchronized JSONObject submitCharacter(final String userId, final String characterImg, final String character) {
+        final String recongnizeFailedMsg = langPropsService.get("activityCharacterRecognizeFailedLabel");
+
+        final JSONObject ret = new JSONObject();
+        ret.put(Keys.STATUS_CODE, false);
+        ret.put(Keys.MSG, recongnizeFailedMsg);
+
+        if (StringUtils.isBlank(characterImg) || StringUtils.isBlank(character)) {
+            ret.put(Keys.STATUS_CODE, false);
+            ret.put(Keys.MSG, recongnizeFailedMsg);
+
+            return ret;
+        }
+
+        final byte[] data = Base64.decode(characterImg);
+        OutputStream stream = null;
+        final String tmpDir = System.getProperty("java.io.tmpdir");
+        final String imagePath = tmpDir + "/" + userId + "-character.png";
+
+        try {
+            stream = new FileOutputStream(imagePath);
+            stream.write(data);
+            stream.flush();
+            stream.close();
+        } catch (final IOException e) {
+            LOGGER.log(Level.ERROR, "Submits character failed", e);
+
+            return ret;
+        } finally {
+            if (null != stream) {
+                try {
+                    stream.close();
+                } catch (final IOException ex) {
+                    LOGGER.log(Level.ERROR, "Closes stream failed", ex);
+                }
+            }
+        }
+
+        final String recognizedCharacter = Tesseracts.recognizeCharacter(imagePath);
+        LOGGER.info("Character [" + character + "], recognized [" + recognizedCharacter + "], image path [" + imagePath
+                + "]");
+        if (StringUtils.equals(character, recognizedCharacter)) {
+            final Query query = new Query();
+            query.setFilter(CompositeFilterOperator.and(
+                    new PropertyFilter(org.b3log.symphony.model.Character.CHARACTER_USER_ID, FilterOperator.EQUAL, userId),
+                    new PropertyFilter(org.b3log.symphony.model.Character.CHARACTER_CONTENT, FilterOperator.EQUAL, character)
+            ));
+
+            try {
+                if (characterRepository.count(query) > 0) {
+                    return ret;
+                }
+            } catch (final RepositoryException e) {
+                LOGGER.log(Level.ERROR, "Count characters failed [userId=" + userId + ", character=" + character + "]", e);
+
+                return ret;
+            }
+
+            final JSONObject record = new JSONObject();
+            record.put(org.b3log.symphony.model.Character.CHARACTER_CONTENT, character);
+            record.put(org.b3log.symphony.model.Character.CHARACTER_IMG, characterImg);
+            record.put(org.b3log.symphony.model.Character.CHARACTER_USER_ID, userId);
+
+            String characterId = "";
+            final Transaction transaction = characterRepository.beginTransaction();
+            try {
+                characterId = characterRepository.add(record);
+
+                transaction.commit();
+            } catch (final RepositoryException e) {
+                LOGGER.log(Level.ERROR, "Submits character failed", e);
+
+                if (null != transaction) {
+                    transaction.rollback();
+                }
+
+                return ret;
+            }
+
+            pointtransferMgmtService.transfer(Pointtransfer.ID_C_SYS, userId,
+                    Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_CHARACTER, Pointtransfer.TRANSFER_SUM_C_ACTIVITY_CHARACTER,
+                    characterId, System.currentTimeMillis());
+
+            try {
+                final JSONObject user = userQueryService.getUser(userId);
+                final String userName = user.optString(User.USER_NAME);
+
+                // Timeline
+                final JSONObject timeline = new JSONObject();
+                timeline.put(Common.USER_ID, userId);
+                timeline.put(Common.TYPE, Common.ACTIVITY);
+                String content = langPropsService.get("timelineActivityCharacterLabel");
+                content = content.replace("{user}", "<a target='_blank' rel='nofollow' href='" + Latkes.getServePath()
+                        + "/member/" + userName + "'>" + userName + "</a>").replace("${servePath}", Latkes.getServePath());
+                timeline.put(Common.CONTENT, content);
+
+                timelineMgmtService.addTimeline(timeline);
+            } catch (final Exception e) {
+                LOGGER.log(Level.ERROR, "Submits character timeline failed", e);
+            }
+
+            ret.put(Keys.STATUS_CODE, true);
+            ret.put(Keys.MSG, langPropsService.get("activityCharacterRecognizeSuccLabel"));
+        } else {
+            ret.put(Keys.STATUS_CODE, false);
+            ret.put(Keys.MSG, recongnizeFailedMsg);
+        }
+
+        return ret;
+    }
+
     /**
      * Daily checkin.
      *
@@ -126,7 +255,7 @@ public class ActivityMgmtService {
                 % (Pointtransfer.TRANSFER_SUM_C_ACTIVITY_CHECKIN_MAX - Pointtransfer.TRANSFER_SUM_C_ACTIVITY_CHECKIN_MIN + 1)
                 + Pointtransfer.TRANSFER_SUM_C_ACTIVITY_CHECKIN_MIN;
         final boolean succ = null != pointtransferMgmtService.transfer(Pointtransfer.ID_C_SYS, userId,
-                Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_CHECKIN, sum, userId);
+                Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_CHECKIN, sum, userId, System.currentTimeMillis());
         if (!succ) {
             return Integer.MIN_VALUE;
         }
@@ -138,6 +267,8 @@ public class ActivityMgmtService {
             int currentStreakEnd = user.optInt(UserExt.USER_CURRENT_CHECKIN_STREAK_END);
 
             final Date today = new Date();
+            user.put(UserExt.USER_CHECKIN_TIME, today.getTime());
+
             final String todayStr = DateFormatUtils.format(today, "yyyyMMdd");
             final int todayInt = Integer.valueOf(todayStr);
 
@@ -191,25 +322,24 @@ public class ActivityMgmtService {
                 user.put(UserExt.USER_LONGEST_CHECKIN_STREAK, currentStreakDays);
             }
 
-            user.put(UserExt.USER_CHECKIN_TIME, today.getTime());
-
             userMgmtService.updateUser(userId, user);
 
             if (currentStreakDays > 0 && 0 == currentStreakDays % 10) {
                 // Additional Point
                 pointtransferMgmtService.transfer(Pointtransfer.ID_C_SYS, userId,
                         Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_CHECKIN_STREAK,
-                        Pointtransfer.TRANSFER_SUM_C_ACTIVITY_CHECKINT_STREAK, userId);
+                        Pointtransfer.TRANSFER_SUM_C_ACTIVITY_CHECKINT_STREAK, userId, System.currentTimeMillis());
             }
 
             final String userName = user.optString(User.USER_NAME);
 
             // Timeline
             final JSONObject timeline = new JSONObject();
+            timeline.put(Common.USER_ID, userId);
             timeline.put(Common.TYPE, Common.ACTIVITY);
             String content = langPropsService.get("timelineActivityCheckinLabel");
             content = content.replace("{user}", "<a target='_blank' rel='nofollow' href='" + Latkes.getServePath()
-                    + "/member/" + userName + "'>" + userName + "</a>");
+                    + "/member/" + userName + "'>" + userName + "</a>").replace("${servePath}", Latkes.getServePath());
             timeline.put(Common.CONTENT, content);
 
             timelineMgmtService.addTimeline(timeline);
@@ -245,7 +375,7 @@ public class ActivityMgmtService {
         final String date = DateFormatUtils.format(new Date(), "yyyyMMdd");
 
         final boolean succ = null != pointtransferMgmtService.transfer(userId, Pointtransfer.ID_C_SYS,
-                Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_1A0001, amount, date + "-" + smallOrLarge);
+                Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_1A0001, amount, date + "-" + smallOrLarge, System.currentTimeMillis());
 
         ret.put(Keys.STATUS_CODE, succ);
 
@@ -259,10 +389,11 @@ public class ActivityMgmtService {
 
             // Timeline
             final JSONObject timeline = new JSONObject();
+            timeline.put(Common.USER_ID, userId);
             timeline.put(Common.TYPE, Common.ACTIVITY);
             String content = langPropsService.get("timelineActivity1A0001Label");
             content = content.replace("{user}", "<a target='_blank' rel='nofollow' href='" + Latkes.getServePath()
-                    + "/member/" + userName + "'>" + userName + "</a>");
+                    + "/member/" + userName + "'>" + userName + "</a>").replace("${servePath}", Latkes.getServePath());
             timeline.put(Common.CONTENT, content);
 
             timelineMgmtService.addTimeline(timeline);
@@ -347,7 +478,7 @@ public class ActivityMgmtService {
 
             final boolean succ = null != pointtransferMgmtService.transfer(Pointtransfer.ID_C_SYS, userId,
                     Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_1A0001_COLLECT, amount,
-                    DateFormatUtils.format(new Date(), "yyyyMMdd") + "-" + smallOrLargeResult);
+                    DateFormatUtils.format(new Date(), "yyyyMMdd") + "-" + smallOrLargeResult, System.currentTimeMillis());
 
             if (succ) {
                 String msg = langPropsService.get("activity1A0001CollectSucc1Label");
@@ -368,29 +499,30 @@ public class ActivityMgmtService {
      * Collects yesterday's liveness reward.
      *
      * @param userId the specified user id
-     * @return {@code Random int} if checkin succeeded, returns {@code Integer.MIN_VALUE} otherwise
      */
-    public synchronized int yesterdayLivenessReward(final String userId) {
+    public synchronized void yesterdayLivenessReward(final String userId) {
         if (activityQueryService.isCollectedYesterdayLivenessReward(userId)) {
-            return Integer.MIN_VALUE;
+            return;
         }
 
         final JSONObject yesterdayLiveness = livenessQueryService.getYesterdayLiveness(userId);
         if (null == yesterdayLiveness) {
-            return Integer.MIN_VALUE;
+            return;
         }
 
         final int sum = Liveness.calcPoint(yesterdayLiveness);
 
-        boolean succ = null != pointtransferMgmtService.transfer(Pointtransfer.ID_C_SYS, userId,
-                Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_YESTERDAY_LIVENESS_REWARD, sum, userId);
-        if (!succ) {
-            return Integer.MIN_VALUE;
+        if (0 == sum) {
+            return;
         }
 
-        // Liveness
-        livenessMgmtService.incLiveness(userId, Liveness.LIVENESS_ACTIVITY);
+        boolean succ = null != pointtransferMgmtService.transfer(Pointtransfer.ID_C_SYS, userId,
+                Pointtransfer.TRANSFER_TYPE_C_ACTIVITY_YESTERDAY_LIVENESS_REWARD, sum, userId, System.currentTimeMillis());
+        if (!succ) {
+            return;
+        }
 
-        return 0;
+        // Today liveness (activity)
+        livenessMgmtService.incLiveness(userId, Liveness.LIVENESS_ACTIVITY);
     }
 }

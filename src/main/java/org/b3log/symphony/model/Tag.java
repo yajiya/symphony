@@ -26,7 +26,7 @@ import org.b3log.symphony.util.Symphonys;
  * This class defines tag model relevant keys.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.10.3.4, May 3, 2016
+ * @version 1.12.4.4, Aug 1, 2016
  * @since 0.2.0
  */
 public final class Tag {
@@ -177,6 +177,11 @@ public final class Tag {
      */
     public static final String TAG_T_RELATED_TAGS = "tagRelatedTags";
 
+    /**
+     * Key of tag title lower case.
+     */
+    public static final String TAG_T_TITLE_LOWER_CASE = "tagTitleLowerCase";
+
     //// Tag type constants
     /**
      * Tag type - creator.
@@ -283,6 +288,17 @@ public final class Tag {
                 continue;
             }
 
+            if (containsWhiteListTags(title)) {
+                tagsBuilder.append(title).append(",");
+                count++;
+
+                if (count >= MAX_TAG_COUNT) {
+                    break;
+                }
+
+                continue;
+            }
+
             if (StringUtils.length(title) > MAX_TAG_TITLE_LENGTH) {
                 continue;
             }
@@ -314,6 +330,22 @@ public final class Tag {
     public static boolean containsReservedTags(final String tagStr) {
         for (final String reservedTag : Symphonys.RESERVED_TAGS) {
             if (StringUtils.containsIgnoreCase(tagStr, reservedTag)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Checks the specified tag string whether contains the white list tags.
+     *
+     * @param tagStr the specified tag string
+     * @return {@code true} if it contains, returns {@code false} otherwise
+     */
+    public static boolean containsWhiteListTags(final String tagStr) {
+        for (final String whiteListTag : Symphonys.WHITE_LIST_TAGS) {
+            if (StringUtils.equalsIgnoreCase(tagStr, whiteListTag)) {
                 return true;
             }
         }

@@ -1,8 +1,9 @@
 <#include "macro-head.ftl">
+<#include "common/sub-nav.ftl">
 <!DOCTYPE html>
 <html>
     <head>
-        <@head title="${chatRoomLabel} - ${symphonyLabel}">
+        <@head title="${communityDynamicLabel} - ${symphonyLabel}">
         <meta name="description" content="${timelineLabel}"/>
         </@head>
         <link rel="stylesheet" href="${staticServePath}/js/lib/editor/codemirror.min.css">
@@ -10,15 +11,12 @@
     <body>
         <#include "header.ftl">
         <div class="main">
+            <@subNav 'community' ''/>
             <div class="wrapper">
-                <div class="fn-hr10"></div>
                 <div class="content chat-room">
-                    <div class="fn-clear">
-                        <h2 class="fn-left">${chatRoomLabel}</h2>
-                        <span class="fn-right ft-smaller online-cnt">
-                            <span class="ft-red" id="onlineCnt">${onlineChatCnt}</span>
-                            <span class="ft-gray">${onlineLabel}</span>
-                        </span>
+                    <div class="content-reset">
+                        <h1>${communityDynamicLabel}</h1>
+                        <i class="ft-gray">${communityDynamicSubLabel}</i>
                     </div>
                     <div class="form">
                         <div class="reply">
@@ -42,15 +40,24 @@
                                 <#list messages as msg>
                                 <li>
                                     <div class="fn-flex">
-                                        <a rel="nofollow" href="/member/${msg.userName}">
+                                        <#if !msg.userAvatarURL?contains("user-thumbnail.png")>
+                                        <a rel="nofollow" href="${servePath}/member/${msg.userName}">
                                             <div class="avatar" 
-                                                 title="${msg.userName}" style="background-image:url('${msg.userAvatarURL}-64.jpg')"></div>
+                                                 title="${msg.userName}" style="background-image:url('${msg.userAvatarURL}?imageView2/1/w/64/h/64/interlace/0/q/80')"></div>
                                         </a>
+                                        <#else>
+                                        <div class="avatar" 
+                                             title="${msg.userName}" style="background-image:url('${msg.userAvatarURL}?imageView2/1/w/64/h/64/interlace/0/q/80')"></div>
+                                        </#if>
                                         <div class="fn-flex-1">
                                             <div class="fn-clear">
                                                 <span class="fn-left">
-                                                    <a rel="nofollow" href="/member/${msg.userName}"
+                                                    <#if !msg.userAvatarURL?contains("user-thumbnail.png")>
+                                                    <a rel="nofollow" href="${servePath}/member/${msg.userName}"
                                                        title="${msg.userName}">${msg.userName}</a>
+                                                    <#else>
+                                                    ${msg.userName}
+                                                    </#if>
                                                 </span>
                                             </div>
                                             <div class="content-reset">
@@ -64,7 +71,6 @@
                         </div>
                     </div>
                 </div>
-                <div class="fn-hr10"></div>
                 <div class="side">
                     <#include "side.ftl">
                 </div>
@@ -74,29 +80,25 @@
         <script>
             Label.uploadLabel = "${uploadLabel}";
         </script>
-        <script type="text/javascript" src="${staticServePath}/js/lib/ws-flash/swfobject.js"></script>
-        <script type="text/javascript" src="${staticServePath}/js/lib/ws-flash/web_socket.js"></script>
-        <script type="text/javascript" src="${staticServePath}/js/lib/reconnecting-websocket.min.js"></script>
         <script src="${staticServePath}/js/lib/editor/codemirror.min.js?5120"></script>
-        <script src="${staticServePath}/js/lib/editor/editor.js?${staticResourceVersion}"></script>
         <script type="text/javascript" src="${staticServePath}/js/lib/highlight.js-8.6/highlight.pack.js"></script>
         <script type="text/javascript" src="${staticServePath}/js/lib/jquery/file-upload-9.10.1/jquery.fileupload.min.js"></script>
         <script type="text/javascript" src="${staticServePath}/js/channel${miniPostfix}.js?${staticResourceVersion}"></script>
         <script type="text/javascript" src="${staticServePath}/js/chat-room${miniPostfix}.js?${staticResourceVersion}"></script>
         <script>
-            WEB_SOCKET_SWF_LOCATION = "${staticServePath}/js/lib/ws-flash/WebSocketMain.swf";
             // Init [ChatRoom] channel
-            ChatRoomChannel.init("${wsScheme}://${serverHost}:${serverPort}/chat-room-channel");
-
+            ChatRoomChannel.init("${wsScheme}://${serverHost}:${serverPort}${contextPath}/chat-room-channel");
             var chatRoomMsgCnt = ${chatRoomMsgCnt};
             Util.uploadFile({
-                "type": "img",
-                "id": "fileUpload",
-                "pasteZone": $(".CodeMirror"),
-                "editor": ChatRoom.editor,
-                "qiniuUploadToken": "${qiniuUploadToken}",
-                "uploadingLabel": "${uploadingLabel}",
-                "qiniuDomain": "${qiniuDomain}"
+            "type": "img",
+                    "id": "fileUpload",
+                    "pasteZone": $(".CodeMirror"),
+                    "editor": ChatRoom.editor,
+                    "qiniuUploadToken": "${qiniuUploadToken}",
+                    "uploadingLabel": "${uploadingLabel}",
+                    "qiniuDomain": "${qiniuDomain}",
+                    "imgMaxSize": ${imgMaxSize?c},
+                    "fileMaxSize": ${fileMaxSize?c}
             });
         </script>
     </body>

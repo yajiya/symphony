@@ -34,10 +34,29 @@
                             ${markdwonGrammarLabel}
                         </div>
                     </div>
-                    <div>
+                    <div class="tags-wrap">
+                        <div class="tags-input"><span class="tags-selected"></span>
                         <input id="articleTags" type="text" tabindex="3" 
-                               value="<#if article??>${article.articleTags}<#else>${tags}</#if>" placeholder="${tagLabel}（${tagSeparatorTipLabel}）"/>
-                        <br/><br/>
+                               value="<#if article??>${article.articleTags}<#else>${tags}</#if>" placeholder="${tagLabel}（${tagSeparatorTipLabel}）" autocomplete="off" />
+                        </div>
+                        <div class="domains-tags">
+                            <#list domains as domain>
+                                <#if domain.domainTags?size gt 0>
+                                    <span data-id="${domain.oId}" class="btn small<#if 0 == domain_index> current</#if>">${domain.domainTitle}</span>&nbsp;
+                                </#if>
+                            </#list>
+                            <div class="fn-hr5"></div>
+                            <#list domains as domain>
+                                <#if domain.domainTags?size gt 0>
+                                <div id="tags${domain.oId}" class="domain-tags<#if 0 != domain_index> fn-none</#if>">
+                                    <#list domain.domainTags as tag>
+                                    <span class="tag">${tag.tagTitle}</span>
+                                    </#list>
+                                </div>
+                                </#if>
+                            </#list>
+                        </div>
+                        <br/>
                     </div>
                     <button id="showReward" class="fn-ellipsis" onclick="$(this).next().show(); $(this).hide()">
                         ${rewardEditorPlaceholderLabel} &dtrif;
@@ -48,12 +67,14 @@
                                       placeholder="${rewardEditorPlaceholderLabel}"><#if article??>${article.articleRewardContent}</#if></textarea>
                         </div>
                         <div>
-                            <input id="articleRewardPoint" type="number" tabindex="5" min="1"
+                            <input id="articleRewardPoint" type="number" tabindex="5" min="1" 
+                                   <#if article?? && 0 < article.articleRewardPoint>data-orval="${article.articleRewardPoint}"</#if> 
                                    value="<#if article?? && 0 < article.articleRewardPoint>${article.articleRewardPoint}</#if>" placeholder="${rewardPointLabel}" />
                         </div>
                     </div>
-                    <br/>
+                    <div class="fn-hr10"></div>
                     <div class="tip" id="addArticleTip"></div>
+                    <div class="fn-hr10"></div>
                     <div class="fn-clear fn-none">
                         <#if !article??>
                         <label> &nbsp;
@@ -75,8 +96,11 @@
                         <#else>
                         <input class="fn-none" type="radio" name="articleType" value="${article.articleType}" checked="checked"/> 
                         </#if>
-                    </div><br/>
-                    <button class="red fn-right" tabindex="10" onclick="AddArticle.add(<#if article??> '${article.oId}' <#else> null </#if>,'${csrfToken}')"><#if article??>${submitLabel}<#else>${postLabel}</#if></button><br/><br/>
+                    </div>
+                    <label class="anonymous-check">${anonymousLabel}<input
+                                    <#if article??> disabled="disabled"<#if 1 == article.articleAnonymous> checked</#if></#if>
+                                    type="checkbox" id="articleAnonymous"></label>
+                    <button class="red fn-right" tabindex="10" onclick="AddArticle.add('${csrfToken}')"><#if article??>${submitLabel}<#else>${postLabel}</#if></button><br/><br/>
                     <div class="fn-clear">
                             <#if !articleType??>
                             <#assign articleType=article.articleType>
@@ -100,9 +124,7 @@
             </div>
         </div>
         <#include "../footer.ftl">
-        <script src="${staticServePath}/js/lib/jquery/jquery.bowknot.min.js"></script>
         <script src="${staticServePath}/js/lib/editor/codemirror.min.js?4.13"></script>
-        <script src="${staticServePath}/js/lib/editor/editor.js"></script>
         <script type="text/javascript" src="${staticServePath}/js/lib/highlight.js-8.6/highlight.pack.js"></script>
         <script type="text/javascript" src="${staticServePath}/js/lib/jquery/file-upload-9.10.1/jquery.fileupload.min.js"></script>
         <script type="text/javascript" src="${staticServePath}/js/lib/sound-recorder/SoundRecorder.js"></script>
@@ -115,9 +137,11 @@
                         Label.recordDeviceNotFoundLabel = "${recordDeviceNotFoundLabel}";
                         Label.uploadLabel = "${uploadLabel}";
                         Label.audioRecordingLabel = '${audioRecordingLabel}';
+                        Label.articleRewardPointErrorLabel = '${articleRewardPointErrorLabel}';
+                        <#if article??>Label.articleOId = '${article.oId}' ;</#if>
         </script>
-        <script src="${staticServePath}/js/add-article${miniPostfix}.js?${staticResourceVersion}"></script>
         <script type="text/javascript" src="${staticServePath}/js/audio${miniPostfix}.js?${staticResourceVersion}"></script>
+        <script src="${staticServePath}/js/add-article${miniPostfix}.js?${staticResourceVersion}"></script>
         <script>
                         Util.uploadFile({
                         "id": "fileUpload",
@@ -125,7 +149,9 @@
                                 "qiniuUploadToken": "${qiniuUploadToken}",
                                 "editor": AddArticle.editor,
                                 "uploadingLabel": "${uploadingLabel}",
-                                "qiniuDomain": "${qiniuDomain}"
+                                "qiniuDomain": "${qiniuDomain}",
+                                "imgMaxSize": ${imgMaxSize?c},
+                                "fileMaxSize": ${fileMaxSize?c}
                         });
                         Util.uploadFile({
                         "id": "rewardFileUpload",
@@ -133,7 +159,9 @@
                                 "qiniuUploadToken": "${qiniuUploadToken}",
                                 "editor": AddArticle.rewardEditor,
                                 "uploadingLabel": "${uploadingLabel}",
-                                "qiniuDomain": "${qiniuDomain}"
+                                "qiniuDomain": "${qiniuDomain}",
+                                "imgMaxSize": ${imgMaxSize?c},
+                                "fileMaxSize": ${fileMaxSize?c}
                         });
         </script>
     </body>

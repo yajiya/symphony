@@ -4,13 +4,17 @@
 <ul class="notification">
     <#list commentedNotifications as notification>
     <li class="fn-flex comment-list-item<#if notification.hasRead> read</#if>">
-        <a target="_blank" rel="nofollow" href="/member/${notification.commentAuthorName}" 
-           title="${notification.commentAuthorName}">
-            <div class="avatar" style="background-image:url('${notification.commentAuthorThumbnailURL}-64.jpg?${notification.thumbnailUpdateTime?c}')"></div>
-        </a>
+        <#if "someone" != notification.commentAuthorName>
+        <a target="_blank" rel="nofollow" href="${servePath}/member/${notification.commentAuthorName}" 
+           title="${notification.commentAuthorName}"></#if>
+            <div class="avatar" style="background-image:url('${notification.commentAuthorThumbnailURL}?imageView2/1/w/64/h/64/interlace/0/q/80')"></div>
+        <#if "someone" != notification.commentAuthorName></a></#if>
         <div class="fn-flex-1">
             <div>
                 <h2>
+                    <#if 1 == notification.commentArticlePerfect>
+                    <svg height="20" viewBox="3 0 11 12" width="14">${perfectIcon}</svg>
+                    </#if>
                     <#if notification.commentArticleType == 1>
                     <span class="icon-locked" title="${discussionLabel}"></span>
                     <#elseif notification.commentArticleType == 2>
@@ -33,7 +37,8 @@
     </#list>
 </ul>
 <#else>
-${noMessageLabel}
+<div class="fn-hr10"></div>
+<div class="ft-center">${noMessageLabel}</div>
 </#if>
 
 <@pagination url="/notifications/commented"/></@notifications>

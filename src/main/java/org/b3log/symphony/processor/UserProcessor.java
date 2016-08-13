@@ -28,6 +28,7 @@ import org.b3log.latke.Keys;
 import org.b3log.latke.logging.Level;
 import org.b3log.latke.logging.Logger;
 import org.b3log.latke.model.Pagination;
+import org.b3log.latke.model.Role;
 import org.b3log.latke.model.User;
 import org.b3log.latke.service.LangPropsService;
 import org.b3log.latke.service.ServiceException;
@@ -42,7 +43,9 @@ import org.b3log.latke.util.CollectionUtils;
 import org.b3log.latke.util.Paginator;
 import org.b3log.latke.util.Requests;
 import org.b3log.latke.util.Strings;
+import org.b3log.symphony.model.Article;
 import org.b3log.symphony.model.Client;
+import org.b3log.symphony.model.Comment;
 import org.b3log.symphony.model.Common;
 import org.b3log.symphony.model.Follow;
 import org.b3log.symphony.model.Notification;
@@ -66,6 +69,7 @@ import org.b3log.symphony.service.AvatarQueryService;
 import org.b3log.symphony.service.NotificationMgmtService;
 import org.b3log.symphony.service.PointtransferMgmtService;
 import org.b3log.symphony.service.PointtransferQueryService;
+import org.b3log.symphony.service.PostExportService;
 import org.b3log.symphony.service.UserMgmtService;
 import org.b3log.symphony.service.UserQueryService;
 import org.b3log.symphony.util.Filler;
@@ -87,18 +91,21 @@ import org.json.JSONObject;
  * <li>User following articles (/member/{userName}/following/articles), GET</li>
  * <li>User followers (/member/{userName}/followers), GET</li>
  * <li>User points (/member/{userName}/points), GET</li>
- * <li>Settings (/settings), GET</li>
- * <li>Profiles (/settings/profiles), POST</li>
+ * <li>Shows settings (/settings), GET</li>
+ * <li>Updates profiles (/settings/profiles), POST</li>
+ * <li>Updates user avatar (/settings/avatar), POST</li>
  * <li>Geo status (/settings/geo/status), POST</li>
  * <li>Sync (/settings/sync/b3), POST</li>
+ * <li>Misc (/settings/misc), POST</li>
  * <li>Password (/settings/password), POST</li>
  * <li>SyncUser (/apis/user), POST</li>
  * <li>Lists usernames (/users/names), GET</li>
+ * <li>Exports posts(article/comment) to a file (/export/posts), POST</li>
  * </ul>
  * </p>
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.14.8.16, Apr 26, 2016
+ * @version 1.19.11.19, Aug 9, 2016
  * @since 0.2.0
  */
 @RequestProcessor
@@ -176,6 +183,209 @@ public class UserProcessor {
     private NotificationMgmtService notificationMgmtService;
 
     /**
+     * Post export service.
+     */
+    @Inject
+    private PostExportService postExportService;
+
+    /**
+     * Shows user home anonymous comments page.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @param userName the specified user name
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/member/{userName}/comments/anonymous", method = HTTPRequestMethod.GET)
+    @Before(adviceClass = {StopwatchStartAdvice.class, UserBlockCheck.class})
+    @After(adviceClass = StopwatchEndAdvice.class)
+    public void showHomeAnonymousComments(final HTTPRequestContext context, final HttpServletRequest request,
+            final HttpServletResponse response, final String userName) throws Exception {
+        final AbstractFreeMarkerRenderer renderer = new SkinRenderer();
+        context.setRenderer(renderer);
+        renderer.setTemplateName("/home/comments.ftl");
+        final Map<String, Object> dataModel = renderer.getDataModel();
+        filler.fillHeaderAndFooter(request, response, dataModel);
+
+        final boolean isLoggedIn = (Boolean) dataModel.get(Common.IS_LOGGED_IN);
+        JSONObject currentUser = null;
+        if (isLoggedIn) {
+            currentUser = (JSONObject) dataModel.get(Common.CURRENT_USER);
+        }
+
+        final JSONObject user = (JSONObject) request.getAttribute(User.USER);
+
+        if (null == currentUser || (!currentUser.optString(Keys.OBJECT_ID).equals(user.optString(Keys.OBJECT_ID)))
+                && !Role.ADMIN_ROLE.equals(currentUser.optString(User.USER_ROLE))) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+
+            return;
+        }
+
+        String pageNumStr = request.getParameter("p");
+        if (Strings.isEmptyOrNull(pageNumStr) || !Strings.isNumeric(pageNumStr)) {
+            pageNumStr = "1";
+        }
+
+        final int pageNum = Integer.valueOf(pageNumStr);
+
+        final int pageSize = Symphonys.getInt("userHomeCmtsCnt");
+        final int windowSize = Symphonys.getInt("userHomeCmtsWindowSize");
+
+        fillHomeUser(dataModel, user);
+        avatarQueryService.fillUserAvatarURL(user);
+
+        final String followingId = user.optString(Keys.OBJECT_ID);
+        dataModel.put(Follow.FOLLOWING_ID, followingId);
+
+        if (isLoggedIn) {
+            currentUser = (JSONObject) dataModel.get(Common.CURRENT_USER);
+            final String followerId = currentUser.optString(Keys.OBJECT_ID);
+
+            final boolean isFollowing = followQueryService.isFollowing(followerId, followingId);
+            dataModel.put(Common.IS_FOLLOWING, isFollowing);
+        }
+
+        user.put(UserExt.USER_T_CREATE_TIME, new Date(user.getLong(Keys.OBJECT_ID)));
+
+        final List<JSONObject> userComments = commentQueryService.getUserComments(user.optString(Keys.OBJECT_ID),
+                Comment.COMMENT_ANONYMOUS_C_ANONYMOUS, pageNum, pageSize, currentUser);
+        dataModel.put(Common.USER_HOME_COMMENTS, userComments);
+
+        int pageCount = 0;
+        if (!userComments.isEmpty()) {
+            final JSONObject first = userComments.get(0);
+            pageCount = first.optInt(Pagination.PAGINATION_PAGE_COUNT);
+        }
+
+        final List<Integer> pageNums = Paginator.paginate(pageNum, pageSize, pageCount, windowSize);
+        if (!pageNums.isEmpty()) {
+            dataModel.put(Pagination.PAGINATION_FIRST_PAGE_NUM, pageNums.get(0));
+            dataModel.put(Pagination.PAGINATION_LAST_PAGE_NUM, pageNums.get(pageNums.size() - 1));
+        }
+
+        dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
+        dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
+        dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "commentsAnonymous");
+    }
+
+    /**
+     * Shows user home anonymous articles page.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @param userName the specified user name
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/member/{userName}/articles/anonymous", method = HTTPRequestMethod.GET)
+    @Before(adviceClass = {StopwatchStartAdvice.class, UserBlockCheck.class})
+    @After(adviceClass = StopwatchEndAdvice.class)
+    public void showAnonymousArticles(final HTTPRequestContext context, final HttpServletRequest request,
+            final HttpServletResponse response, final String userName) throws Exception {
+        final AbstractFreeMarkerRenderer renderer = new SkinRenderer();
+        context.setRenderer(renderer);
+        renderer.setTemplateName("/home/comments.ftl");
+        final Map<String, Object> dataModel = renderer.getDataModel();
+        filler.fillHeaderAndFooter(request, response, dataModel);
+
+        final boolean isLoggedIn = (Boolean) dataModel.get(Common.IS_LOGGED_IN);
+        JSONObject currentUser = null;
+        if (isLoggedIn) {
+            currentUser = (JSONObject) dataModel.get(Common.CURRENT_USER);
+        }
+
+        final JSONObject user = (JSONObject) request.getAttribute(User.USER);
+
+        if (null == currentUser || (!currentUser.optString(Keys.OBJECT_ID).equals(user.optString(Keys.OBJECT_ID)))
+                && !Role.ADMIN_ROLE.equals(currentUser.optString(User.USER_ROLE))) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+
+            return;
+        }
+
+        String pageNumStr = request.getParameter("p");
+        if (Strings.isEmptyOrNull(pageNumStr) || !Strings.isNumeric(pageNumStr)) {
+            pageNumStr = "1";
+        }
+
+        final int pageNum = Integer.valueOf(pageNumStr);
+
+        final String followingId = user.optString(Keys.OBJECT_ID);
+        dataModel.put(Follow.FOLLOWING_ID, followingId);
+
+        renderer.setTemplateName("/home/home.ftl");
+
+        dataModel.put(User.USER, user);
+        fillHomeUser(dataModel, user);
+        avatarQueryService.fillUserAvatarURL(user);
+
+        if (isLoggedIn) {
+            final String followerId = currentUser.optString(Keys.OBJECT_ID);
+
+            final boolean isFollowing = followQueryService.isFollowing(followerId, followingId);
+            dataModel.put(Common.IS_FOLLOWING, isFollowing);
+        }
+
+        user.put(UserExt.USER_T_CREATE_TIME, new Date(user.getLong(Keys.OBJECT_ID)));
+
+        final int pageSize = Symphonys.getInt("userHomeArticlesCnt");
+        final int windowSize = Symphonys.getInt("userHomeArticlesWindowSize");
+
+        final List<JSONObject> userArticles = articleQueryService.getUserArticles(user.optString(Keys.OBJECT_ID),
+                Article.ARTICLE_ANONYMOUS_C_ANONYMOUS, pageNum, pageSize);
+        dataModel.put(Common.USER_HOME_ARTICLES, userArticles);
+
+        int pageCount = 0;
+        if (!userArticles.isEmpty()) {
+            final JSONObject first = userArticles.get(0);
+            pageCount = first.optInt(Pagination.PAGINATION_PAGE_COUNT);
+        }
+
+        final List<Integer> pageNums = Paginator.paginate(pageNum, pageSize, pageCount, windowSize);
+        if (!pageNums.isEmpty()) {
+            dataModel.put(Pagination.PAGINATION_FIRST_PAGE_NUM, pageNums.get(0));
+            dataModel.put(Pagination.PAGINATION_LAST_PAGE_NUM, pageNums.get(pageNums.size() - 1));
+        }
+
+        dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
+        dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
+        dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.IS_MY_ARTICLE, userName.equals(currentUser.optString(User.USER_NAME)));
+
+        dataModel.put(Common.TYPE, "articlesAnonymous");
+    }
+
+    /**
+     * Exports posts(article/comment) to a file.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     */
+    @RequestProcessing(value = "/export/posts", method = HTTPRequestMethod.POST)
+    @Before(adviceClass = {LoginCheck.class})
+    public void exportPosts(final HTTPRequestContext context, final HttpServletRequest request) {
+        context.renderJSON();
+
+        final JSONObject user = (JSONObject) request.getAttribute(User.USER);
+        final String userId = user.optString(Keys.OBJECT_ID);
+
+        final String downloadURL = postExportService.exportPosts(userId);
+        if ("-1".equals(downloadURL)) {
+            context.renderJSONValue(Keys.MSG, langPropsService.get("insufficientBalanceLabel"));
+
+        } else if (StringUtils.isBlank(downloadURL)) {
+            return;
+        }
+
+        context.renderJSON(true).renderJSONValue("url", downloadURL);
+    }
+
+    /**
      * Shows user home page.
      *
      * @param context the specified context
@@ -226,7 +436,8 @@ public class UserProcessor {
         final int pageSize = Symphonys.getInt("userHomeArticlesCnt");
         final int windowSize = Symphonys.getInt("userHomeArticlesWindowSize");
 
-        final List<JSONObject> userArticles = articleQueryService.getUserArticles(user.optString(Keys.OBJECT_ID), pageNum, pageSize);
+        final List<JSONObject> userArticles = articleQueryService.getUserArticles(user.optString(Keys.OBJECT_ID),
+                Article.ARTICLE_ANONYMOUS_C_PUBLIC, pageNum, pageSize);
         dataModel.put(Common.USER_HOME_ARTICLES, userArticles);
 
         final int articleCnt = user.optInt(UserExt.USER_ARTICLE_COUNT);
@@ -248,6 +459,8 @@ public class UserProcessor {
         } else {
             dataModel.put(Common.IS_MY_ARTICLE, userName.equals(currentUser.optString(User.USER_NAME)));
         }
+
+        dataModel.put(Common.TYPE, "home");
     }
 
     /**
@@ -301,7 +514,7 @@ public class UserProcessor {
         user.put(UserExt.USER_T_CREATE_TIME, new Date(user.getLong(Keys.OBJECT_ID)));
 
         final List<JSONObject> userComments = commentQueryService.getUserComments(user.optString(Keys.OBJECT_ID),
-                pageNum, pageSize, currentUser);
+                Comment.COMMENT_ANONYMOUS_C_PUBLIC, pageNum, pageSize, currentUser);
         dataModel.put(Common.USER_HOME_COMMENTS, userComments);
 
         final int commentCnt = user.optInt(UserExt.USER_COMMENT_COUNT);
@@ -316,6 +529,8 @@ public class UserProcessor {
         dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
         dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
         dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "comments");
     }
 
     /**
@@ -389,6 +604,8 @@ public class UserProcessor {
         dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
         dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
         dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "followingUsers");
     }
 
     /**
@@ -462,6 +679,8 @@ public class UserProcessor {
         dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
         dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
         dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "followingTags");
     }
 
     /**
@@ -535,6 +754,8 @@ public class UserProcessor {
         dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
         dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
         dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "followingArticles");
     }
 
     /**
@@ -608,6 +829,8 @@ public class UserProcessor {
         dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
         dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
         dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "followers");
     }
 
     /**
@@ -677,6 +900,8 @@ public class UserProcessor {
         dataModel.put(Pagination.PAGINATION_CURRENT_PAGE_NUM, pageNum);
         dataModel.put(Pagination.PAGINATION_PAGE_COUNT, pageCount);
         dataModel.put(Pagination.PAGINATION_PAGE_NUMS, pageNums);
+
+        dataModel.put(Common.TYPE, "points");
     }
 
     /**
@@ -704,8 +929,7 @@ public class UserProcessor {
 
         // Qiniu file upload authenticate
         final Auth auth = Auth.create(Symphonys.get("qiniu.accessKey"), Symphonys.get("qiniu.secretKey"));
-        final String uploadToken = auth.uploadToken(Symphonys.get("qiniu.bucket"),
-                "avatar/" + user.optString(Keys.OBJECT_ID));
+        final String uploadToken = auth.uploadToken(Symphonys.get("qiniu.bucket"));
         dataModel.put("qiniuUploadToken", uploadToken);
         dataModel.put("qiniuDomain", Symphonys.get("qiniu.domain"));
 
@@ -727,6 +951,12 @@ public class UserProcessor {
         String pointTransferTipLabel = (String) dataModel.get("pointTransferTipLabel");
         pointTransferTipLabel = pointTransferTipLabel.replace("{point}", Symphonys.get("pointTransferMin"));
         dataModel.put("pointTransferTipLabel", pointTransferTipLabel);
+
+        String dataExportTipLabel = (String) dataModel.get("dataExportTipLabel");
+        dataExportTipLabel = dataExportTipLabel.replace("{point}", Symphonys.get("pointDataExport"));
+        dataModel.put("dataExportTipLabel", dataExportTipLabel);
+
+        dataModel.put(Common.TYPE, "settings");
     }
 
     /**
@@ -735,12 +965,11 @@ public class UserProcessor {
      * @param context the specified context
      * @param request the specified request
      * @param response the specified response
-     * @throws Exception exception
      */
     @RequestProcessing(value = "/settings/geo/status", method = HTTPRequestMethod.POST)
     @Before(adviceClass = {LoginCheck.class, CSRFCheck.class})
-    public void updateGeoStatus(final HTTPRequestContext context, final HttpServletRequest request, final HttpServletResponse response)
-            throws Exception {
+    public void updateGeoStatus(final HTTPRequestContext context,
+            final HttpServletRequest request, final HttpServletResponse response) {
         context.renderJSON();
 
         JSONObject requestJSONObject;
@@ -754,13 +983,107 @@ public class UserProcessor {
         }
 
         int geoStatus = requestJSONObject.optInt(UserExt.USER_GEO_STATUS);
-        if (UserExt.USER_GEO_STATUS_C_PRIVATE != geoStatus && UserExt.USER_GEO_STATUS_C_PRIVATE != geoStatus) {
+        if (UserExt.USER_GEO_STATUS_C_PRIVATE != geoStatus && UserExt.USER_GEO_STATUS_C_PUBLIC != geoStatus) {
             geoStatus = UserExt.USER_GEO_STATUS_C_PUBLIC;
+        }
+
+        try {
+            final JSONObject user = userQueryService.getCurrentUser(request);
+            user.put(UserExt.USER_GEO_STATUS, geoStatus);
+
+            userMgmtService.updateUser(user.optString(Keys.OBJECT_ID), user);
+
+            context.renderTrueResult();
+        } catch (final ServiceException e) {
+            context.renderMsg(e.getMessage());
+        }
+    }
+
+    /**
+     * Updates user misc.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/settings/misc", method = HTTPRequestMethod.POST)
+    @Before(adviceClass = {LoginCheck.class, CSRFCheck.class})
+    public void updateMisc(final HTTPRequestContext context, final HttpServletRequest request, final HttpServletResponse response)
+            throws Exception {
+        context.renderJSON();
+
+        JSONObject requestJSONObject;
+        try {
+            requestJSONObject = Requests.parseRequestJSONObject(request, response);
+            request.setAttribute(Keys.REQUEST, requestJSONObject);
+        } catch (final Exception e) {
+            LOGGER.warn(e.getMessage());
+
+            requestJSONObject = new JSONObject();
+        }
+
+        final boolean onlineStatus = requestJSONObject.optBoolean(UserExt.USER_ONLINE_STATUS);
+        final boolean articleStatus = requestJSONObject.optBoolean(UserExt.USER_ARTICLE_STATUS);
+        final boolean commentStatus = requestJSONObject.optBoolean(UserExt.USER_COMMENT_STATUS);
+        final boolean followingUserStatus = requestJSONObject.optBoolean(UserExt.USER_FOLLOWING_USER_STATUS);
+        final boolean followingTagStatus = requestJSONObject.optBoolean(UserExt.USER_FOLLOWING_TAG_STATUS);
+        final boolean followingArticleStatus = requestJSONObject.optBoolean(UserExt.USER_FOLLOWING_ARTICLE_STATUS);
+        final boolean followerStatus = requestJSONObject.optBoolean(UserExt.USER_FOLLOWER_STATUS);
+        final boolean pointStatus = requestJSONObject.optBoolean(UserExt.USER_POINT_STATUS);
+        final boolean timelineStatus = requestJSONObject.optBoolean(UserExt.USER_TIMELINE_STATUS);
+        final boolean uaStatus = requestJSONObject.optBoolean(UserExt.USER_UA_STATUS);
+        final boolean notifyStatus = requestJSONObject.optBoolean(UserExt.USER_NOTIFY_STATUS);
+        final boolean userJoinPointRank = requestJSONObject.optBoolean(UserExt.USER_JOIN_POINT_RANK);
+        final boolean userJoinUsedPointRank = requestJSONObject.optBoolean(UserExt.USER_JOIN_USED_POINT_RANK);
+        String userListPageSizeStr = requestJSONObject.optString(UserExt.USER_LIST_PAGE_SIZE);
+
+        int userListPageSize;
+        try {
+            userListPageSize = Integer.valueOf(userListPageSizeStr);
+
+            if (15 > userListPageSize) {
+                userListPageSize = 15;
+            }
+
+            if (userListPageSize > 41) {
+                userListPageSize = 41;
+            }
+        } catch (final Exception e) {
+            userListPageSize = Symphonys.getInt("indexArticlesCnt");
         }
 
         final JSONObject user = userQueryService.getCurrentUser(request);
 
-        user.put(UserExt.USER_GEO_STATUS, geoStatus);
+        user.put(UserExt.USER_ONLINE_STATUS, onlineStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_ARTICLE_STATUS, articleStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_COMMENT_STATUS, commentStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_FOLLOWING_USER_STATUS, followingUserStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_FOLLOWING_TAG_STATUS, followingTagStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_FOLLOWING_ARTICLE_STATUS, followingArticleStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_FOLLOWER_STATUS, followerStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_POINT_STATUS, pointStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_TIMELINE_STATUS, timelineStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_UA_STATUS, uaStatus
+                ? UserExt.USER_XXX_STATUS_C_PUBLIC : UserExt.USER_XXX_STATUS_C_PRIVATE);
+        user.put(UserExt.USER_NOTIFY_STATUS, notifyStatus
+                ? UserExt.USER_XXX_STATUS_C_ENABLED : UserExt.USER_XXX_STATUS_C_DISABLED);
+        user.put(UserExt.USER_JOIN_POINT_RANK,
+                userJoinPointRank
+                        ? UserExt.USER_JOIN_POINT_RANK_C_JOIN : UserExt.USER_JOIN_POINT_RANK_C_NOT_JOIN);
+        user.put(UserExt.USER_JOIN_USED_POINT_RANK,
+                userJoinUsedPointRank
+                        ? UserExt.USER_JOIN_USED_POINT_RANK_C_JOIN : UserExt.USER_JOIN_USED_POINT_RANK_C_NOT_JOIN);
+        user.put(UserExt.USER_LIST_PAGE_SIZE, userListPageSize);
 
         try {
             userMgmtService.updateUser(user.optString(Keys.OBJECT_ID), user);
@@ -791,9 +1114,7 @@ public class UserProcessor {
         final String userURL = requestJSONObject.optString(User.USER_URL);
         final String userQQ = requestJSONObject.optString(UserExt.USER_QQ);
         final String userIntro = requestJSONObject.optString(UserExt.USER_INTRO);
-        final String userAvatarURL = requestJSONObject.optString(UserExt.USER_AVATAR_URL);
-        final boolean userJoinPointRank = requestJSONObject.optBoolean(UserExt.USER_JOIN_POINT_RANK);
-        final boolean userJoinUsedPointRank = requestJSONObject.optBoolean(UserExt.USER_JOIN_USED_POINT_RANK);
+        final String userNickname = requestJSONObject.optString(UserExt.USER_NICKNAME);
         final int userCommentViewMode = requestJSONObject.optInt(UserExt.USER_COMMENT_VIEW_MODE);
 
         final JSONObject user = userQueryService.getCurrentUser(request);
@@ -802,14 +1123,42 @@ public class UserProcessor {
         user.put(User.USER_URL, userURL);
         user.put(UserExt.USER_QQ, userQQ);
         user.put(UserExt.USER_INTRO, userIntro.replace("<", "&lt;").replace(">", "&gt"));
+        user.put(UserExt.USER_NICKNAME, userNickname.replace("<", "&lt;").replace(">", "&gt"));
         user.put(UserExt.USER_AVATAR_TYPE, UserExt.USER_AVATAR_TYPE_C_UPLOAD);
-        user.put(UserExt.USER_JOIN_POINT_RANK,
-                userJoinPointRank
-                        ? UserExt.USER_JOIN_POINT_RANK_C_JOIN : UserExt.USER_JOIN_POINT_RANK_C_NOT_JOIN);
-        user.put(UserExt.USER_JOIN_USED_POINT_RANK,
-                userJoinUsedPointRank
-                        ? UserExt.USER_JOIN_USED_POINT_RANK_C_JOIN : UserExt.USER_JOIN_USED_POINT_RANK_C_NOT_JOIN);
         user.put(UserExt.USER_COMMENT_VIEW_MODE, userCommentViewMode);
+
+        try {
+            userMgmtService.updateProfiles(user);
+
+            context.renderTrueResult();
+        } catch (final ServiceException e) {
+            context.renderMsg(e.getMessage());
+        }
+    }
+
+    /**
+     * Updates user avatar.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/settings/avatar", method = HTTPRequestMethod.POST)
+    @Before(adviceClass = {LoginCheck.class, CSRFCheck.class, UpdateProfilesValidation.class})
+    public void updateAvatar(final HTTPRequestContext context, final HttpServletRequest request, final HttpServletResponse response)
+            throws Exception {
+        context.renderJSON();
+
+        final JSONObject requestJSONObject = (JSONObject) request.getAttribute(Keys.REQUEST);
+        final String userAvatarURL = requestJSONObject.optString(UserExt.USER_AVATAR_URL);
+
+        final long now = System.currentTimeMillis();
+
+        final JSONObject user = userQueryService.getCurrentUser(request);
+
+        user.put(UserExt.USER_AVATAR_TYPE, UserExt.USER_AVATAR_TYPE_C_UPLOAD);
+        user.put(UserExt.USER_UPDATE_TIME, System.currentTimeMillis());
 
         if (Symphonys.getBoolean("qiniu.enabled")) {
             final String qiniuDomain = Symphonys.get("qiniu.domain");
@@ -817,15 +1166,14 @@ public class UserProcessor {
             if (!StringUtils.startsWith(userAvatarURL, qiniuDomain)) {
                 user.put(UserExt.USER_AVATAR_URL, Symphonys.get("defaultThumbnailURL"));
             } else {
-                user.put(UserExt.USER_AVATAR_URL, qiniuDomain + "/avatar/" + user.optString(Keys.OBJECT_ID)
-                        + "?" + new Date().getTime());
+                user.put(UserExt.USER_AVATAR_URL, userAvatarURL);
             }
         } else {
             user.put(UserExt.USER_AVATAR_URL, userAvatarURL);
         }
 
         try {
-            userMgmtService.updateProfiles(user);
+            userMgmtService.updateUser(user.optString(Keys.OBJECT_ID), user);
 
             context.renderTrueResult();
         } catch (final ServiceException e) {
@@ -858,7 +1206,7 @@ public class UserProcessor {
         final String toId = toUser.optString(Keys.OBJECT_ID);
 
         final String transferId = pointtransferMgmtService.transfer(fromId, toId,
-                Pointtransfer.TRANSFER_TYPE_C_ACCOUNT2ACCOUNT, amount, toId);
+                Pointtransfer.TRANSFER_TYPE_C_ACCOUNT2ACCOUNT, amount, toId, System.currentTimeMillis());
         final boolean succ = null != transferId;
         ret.put(Keys.STATUS_CODE, succ);
         if (!succ) {
@@ -1055,14 +1403,14 @@ public class UserProcessor {
     }
 
     /**
-     * Resets unverified users..
+     * Resets unverified users.
      *
      * @param context the specified context
      * @param request the specified request
      * @param response the specified response
      * @throws Exception exception
      */
-    @RequestProcessing(value = "/users/reset-unverified", method = HTTPRequestMethod.GET)
+    @RequestProcessing(value = "/cron/users/reset-unverified", method = HTTPRequestMethod.GET)
     public void resetUnverifiedUsers(final HTTPRequestContext context,
             final HttpServletRequest request, final HttpServletResponse response) throws Exception {
         final String key = Symphonys.get("keyOfSymphony");
@@ -1132,7 +1480,7 @@ public class UserProcessor {
      * @param response the specified response
      * @throws Exception exception
      */
-    @RequestProcessing(value = "/users/load-names", method = HTTPRequestMethod.GET)
+    @RequestProcessing(value = "/cron/users/load-names", method = HTTPRequestMethod.GET)
     public void loadUserNames(final HTTPRequestContext context, final HttpServletRequest request, final HttpServletResponse response)
             throws Exception {
         final String key = Symphonys.get("keyOfSymphony");

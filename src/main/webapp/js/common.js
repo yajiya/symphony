@@ -19,7 +19,7 @@
  *
  * @author <a href="http://vanessa.b3log.org">Liyuan Li</a>
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.23.12.16, May 10, 2016
+ * @version 1.30.19.24, Aug 13, 2016
  */
 
 /**
@@ -27,6 +27,59 @@
  * @static
  */
 var Util = {
+    /**
+     * 粘贴中包含图片和文案时，需要处理为 markdown 语法
+     * @param {type} text
+     * @returns {String}
+     */
+    processClipBoard: function (text, cm) {
+        var text = toMarkdown(text, {converters: [
+                {
+                    filter: 'img',
+                    replacement: function (innerHTML, node) {
+                        if (1 === node.attributes.length) {
+                            return "";
+                        }
+                        
+                        var requestJSONObject = {
+                            url: node.src
+                        };
+
+                        $.ajax({
+                            url: Label.servePath + "/fetch-upload",
+                            type: "POST",
+                            data: JSON.stringify(requestJSONObject),
+                            cache: false,
+                            success: function (result, textStatus) {
+                                if (result.sc) {
+                                    var value = cm.getValue();
+                                    value = value.replace(result.originalURL, result.url);
+                                    cm.setValue(value);
+                                }
+                            }
+                        });
+
+                        return "![](" + node.src + ")";
+                    }
+                }
+            ], gfm: true});
+
+        // ascii 160 替换为 30
+        text = $('<div>' + text + '</div>').text().replace(/\n{2,}/g, '\n\n').replace(/ /g, ' ');
+        return $.trim(text);
+    },
+    /**
+     * @description 根据 url search 获取值
+     * @param {type} name
+     * @returns {String}
+     */
+    getParameterByName: function (name) {
+        name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+        var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+                results = regex.exec(location.search);
+
+        return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+    },
     /**
      * 通过 UA 获取设备 
      * @param {String} ua user agent
@@ -51,7 +104,7 @@ var Util = {
         $('#search').autocomplete({
             hint: false,
             templates: {
-                footer: '<div class="fn-right fn-pointer" onclick="window.open(\'https://www.algolia.com/\')">'
+                footer: '<div class="fn-right fn-pointer" onclick="window.open(\'https://www.algolia.com/referrals/1faf0d17/join\')">'
                         + '<span class="ft-gray">With &hearts; from</span> <img src="' + Label.staticServePath + '/images/services/algolia128x40.png" /> </div>'
             }
         }, [{
@@ -133,7 +186,7 @@ var Util = {
 
             $.ajax({
                 async: false,
-                url: "/users/names?name=" + tok.string.substring(1),
+                url: Label.servePath + "/users/names?name=" + tok.string.substring(1),
                 type: "GET",
                 success: function (result) {
                     if (!result.sc || !result.userNames) {
@@ -148,7 +201,7 @@ var Util = {
 
                         autocompleteHints.push({
                             displayText: "<span style='font-size: 1rem;line-height:22px'><img style='width: 1rem;height: 1rem;margin:3px 0;float:left' src='" + avatar
-                                    + "-64.jpg?" + updateTime + "'> " + name + "</span>",
+                                    + "?imageView2/1/w/64/h/64/interlace/0/q/80'> " + name + "</span>",
                             text: name + " "
                         });
                     }
@@ -231,7 +284,7 @@ var Util = {
             Audio.handleStopRecording();
 
             var cursor = cm.getCursor();
-            cm.replaceRange(uploadingLabel, CodeMirror.Pos(cursor.line, cursor.ch - Label.audioRecordingLabel.length), cursor);
+            cm.replaceRange(Label.uploadingLabel, CodeMirror.Pos(cursor.line, cursor.ch - Label.audioRecordingLabel.length), cursor);
 
             var blob = Audio.wavFileBlob.getDataBlob();
             var key = Math.floor(Math.random() * 100) + "" + new Date().getTime() + ""
@@ -239,29 +292,54 @@ var Util = {
 
             var reader = new FileReader();
             reader.onload = function (event) {
-                var fd = new FormData();
-                fd.append('token', qiniuToken);
-                fd.append('file', blob);
-                fd.append('key', key);
+                if ("" !== qiniuToken) {
+                    var fd = new FormData();
+                    fd.append('token', qiniuToken);
+                    fd.append('file', blob);
+                    fd.append('key', key);
 
-                $.ajax({
-                    type: 'POST',
-                    url: 'https://up.qbox.me/',
-                    data: fd,
-                    processData: false,
-                    contentType: false,
-                    paramName: "file",
-                    success: function (data) {
-                        var cursor = cm.getCursor();
-                        cm.replaceRange('<audio controls="controls" src="' + qiniuDomain + '/' + key + '"></audio>\n\n',
-                                CodeMirror.Pos(cursor.line, cursor.ch - uploadingLabel.length), cursor);
-                    },
-                    error: function (XMLHttpRequest, textStatus, errorThrown) {
-                        alert("Error: " + errorThrown);
-                        var cursor = cm.getCursor();
-                        cm.replaceRange('', CodeMirror.Pos(cursor.line, cursor.ch - uploadingLabel.length), cursor);
-                    }
-                });
+                    $.ajax({
+                        type: 'POST',
+                        url: 'https://up.qbox.me/',
+                        data: fd,
+                        processData: false,
+                        contentType: false,
+                        paramName: "file",
+                        success: function (data) {
+                            var cursor = cm.getCursor();
+                            cm.replaceRange('<audio controls="controls" src="' + qiniuDomain + '/' + key + '"></audio>\n\n',
+                                    CodeMirror.Pos(cursor.line, cursor.ch - Label.uploadingLabel.length), cursor);
+                        },
+                        error: function (XMLHttpRequest, textStatus, errorThrown) {
+                            alert("Error: " + errorThrown);
+                            var cursor = cm.getCursor();
+                            cm.replaceRange('', CodeMirror.Pos(cursor.line, cursor.ch - Label.uploadingLabel.length), cursor);
+                        }
+                    });
+                } else { // 说明没有使用七牛，而是使用本地
+                    var fd = new FormData();
+                    fd.append('file', blob);
+                    fd.append('key', key);
+
+                    $.ajax({
+                        type: 'POST',
+                        url: Label.servePath + '/upload',
+                        data: fd,
+                        processData: false,
+                        contentType: false,
+                        paramName: "file",
+                        success: function (data) {
+                            var cursor = cm.getCursor();
+                            cm.replaceRange('<audio controls="controls" src="' + data.key + '"></audio>\n\n',
+                                    CodeMirror.Pos(cursor.line, cursor.ch - Label.uploadingLabel.length), cursor);
+                        },
+                        error: function (XMLHttpRequest, textStatus, errorThrown) {
+                            alert("Error: " + errorThrown);
+                            var cursor = cm.getCursor();
+                            cm.replaceRange('', CodeMirror.Pos(cursor.line, cursor.ch - Label.uploadingLabel.length), cursor);
+                        }
+                    });
+                }
             };
 
             // trigger the read from the reader...
@@ -269,87 +347,9 @@ var Util = {
         };
     },
     /**
-     * 初始化个人设置中的头像图片上传.
-     * 
-     * @returns {Boolean}
-     */
-    initUpload: function (params, succCB, succCBQN) {
-        if ("" === params.qiniuUploadToken) { // 说明没有使用七牛，而是使用本地
-            $('#' + params.id).fileupload({
-                acceptFileTypes: /(\.|\/)(gif|jpe?g|png)$/i,
-                maxFileSize: params.maxSize,
-                multipart: true,
-                pasteZone: null,
-                dropZone: null,
-                url: "/upload",
-                formData: function (form) {
-                    var data = form.serializeArray();
-                    return data;
-                },
-                submit: function (e, data) {
-                },
-                done: function (e, data) {
-                    var qiniuKey = data.result.key;
-                    if (!qiniuKey) {
-                        alert("Upload error");
-                        return;
-                    }
-
-                    succCB(data);
-                },
-                fail: function (e, data) {
-                    alert("Upload error: " + data.errorThrown);
-                }
-            }).on('fileuploadprocessalways', function (e, data) {
-                var currentFile = data.files[data.index];
-                if (data.files.error && currentFile.error) {
-                    alert(currentFile.error);
-                }
-            });
-        } else {
-            $('#' + params.id).fileupload({
-                acceptFileTypes: /(\.|\/)(gif|jpe?g|png)$/i,
-                maxFileSize: params.maxSize,
-                multipart: true,
-                pasteZone: null,
-                dropZone: null,
-                url: "https://up.qbox.me/",
-                formData: function (form) {
-                    var data = form.serializeArray();
-                    data.push({name: 'token', value: params.qiniuUploadToken});
-                    data.push({name: 'key', value: 'avatar/' + params.userId});
-                    return data;
-                },
-                submit: function (e, data) {
-                },
-                done: function (e, data) {
-                    var qiniuKey = data.result.key;
-                    if (!qiniuKey) {
-                        alert("Upload error");
-                        return;
-                    }
-                    succCBQN(data);
-                },
-                fail: function (e, data) {
-                    alert("Upload error: " + data.errorThrown);
-                }
-            }).on('fileuploadprocessalways', function (e, data) {
-                var currentFile = data.files[data.index];
-                if (data.files.error && currentFile.error) {
-                    alert(currentFile.error);
-                }
-            });
-        }
-    },
-    /**
      * @description 鼠标移动到文章列表标题上时，显示其开头内容
      */
-    initArticlePreview: function () {
-        if ($.ua.device.type === 'mobile') {
-            $('.commenters').remove();
-            $('.cmts').css('display', 'inline-block');
-            return false;
-        }
+    _initArticlePreview: function () {
         $(".article-list h2 > a").hover(function () {
             var $ele = $(this);
 
@@ -379,7 +379,7 @@ var Util = {
                 }
 
                 $.ajax({
-                    url: "/article/" + $ele.data('id') + "/preview",
+                    url: Label.servePath + "/article/" + $ele.data('id') + "/preview",
                     type: "GET",
                     cache: false,
                     success: function (result, textStatus) {
@@ -401,11 +401,22 @@ var Util = {
         });
     },
     /**
+     * @description 标记指定类型的消息通知为已读状态.
+     * @param {String} type 指定类型："commented"/"at"/"followingUser"
+     */
+    makeNotificationRead: function (type) {
+        $.ajax({
+            url: Label.servePath + "/notification/read/" + type,
+            type: "GET",
+            cache: false
+        });
+    },
+    /**
      * @description 设置当前登录用户的未读提醒计数.
      */
     setUnreadNotificationCount: function () {
         $.ajax({
-            url: "/notification/unread/count",
+            url: Label.servePath + "/notification/unread/count",
             type: "GET",
             cache: false,
             success: function (result, textStatus) {
@@ -415,7 +426,7 @@ var Util = {
                     $("#aNotifications").removeClass("no-msg").addClass("msg").text(count);
 
                     if (window.localStorage) {
-                        if (count !== Number(window.localStorage.unreadNotificationCount)) {
+                        if (count !== Number(window.localStorage.unreadNotificationCount) && 0 === result.userNotifyStatus) {
                             // Webkit Desktop Notification
                             var msg = Label.desktopNotificationTemplateLabel;
                             msg = msg.replace("${count}", count);
@@ -449,9 +460,14 @@ var Util = {
      * @param {BOM} it 触发事件的元素
      * @param {String} id 关注 id
      * @param {String} type 关注的类型
-     * @param {String} from 时间来源
+     * @param {String} index 为数字时表示关注数，String 时表示来源
      */
-    follow: function (it, id, type, from) {
+    follow: function (it, id, type, index) {
+        if (!Label.isLoggedIn) {
+            Util.showLogin();
+            return false;
+        }
+        
         if ($(it).hasClass("disabled")) {
             return false;
         }
@@ -461,22 +477,18 @@ var Util = {
         };
         $(it).addClass("disabled");
         $.ajax({
-            url: "/follow/" + type,
+            url: Label.servePath + "/follow/" + type,
             type: "POST",
             cache: false,
             data: JSON.stringify(requestJSONObject),
             success: function (result, textStatus) {
                 if (result.sc) {
                     $(it).removeClass("disabled");
-                    if ("article" == type) {
-                        $(it).addClass('ft-red').html(' <span class="icon-star"></span> ' +
-                                (parseInt($(it).text()) + 1) + ' ').
-                                attr("onclick", "Util.unfollow(this, '" + id + "', '" + type + "')")
-                                .attr("title", Label.uncollectLabel);
-                    } else if (from && 'tag-articles' === from) {
-                        $(it).removeClass("ft-gray").addClass("ft-red")
-                                .attr("onclick", "Util.unfollow(this, '" + id + "', '" + type + "', 'tag-articles')")
-                                .attr('title', Label.unfollowLabel);
+                    if ("article" === type || ("tag" === type && typeof (index) !== 'undefined')) {
+                        $(it).html('<span class="icon-star ft-red"></span>').
+                                attr("onclick", "Util.unfollow(this, '" + id + "', '" + type + "', " + (index + 1) + ")")
+                                .attr("aria-label", Label.uncollectLabel + ' ' +
+                                        (index + 1));
                     } else {
                         $(it).removeClass("green").addClass("red")
                                 .attr("onclick", "Util.unfollow(this, '" + id + "', '" + type + "')")
@@ -494,9 +506,9 @@ var Util = {
      * @param {BOM} it 触发事件的元素
      * @param {String} id 关注 id
      * @param {String} type 取消关注的类型
-     * @param {String} from 时间来源
+     * @param {String} index 为数字时表示关注数，String 时表示来源
      */
-    unfollow: function (it, id, type, from) {
+    unfollow: function (it, id, type, index) {
         if ($(it).hasClass("disabled")) {
             return false;
         }
@@ -506,25 +518,16 @@ var Util = {
         };
         $(it).addClass("disabled");
         $.ajax({
-            url: "/follow/" + type,
+            url: Label.servePath + "/follow/" + type,
             type: "DELETE",
             cache: false,
             data: JSON.stringify(requestJSONObject),
             success: function (result, textStatus) {
                 if (result.sc) {
-                    if ("article" === type) {
-                        var count = parseInt($(it).text()) - 1;
-                        if (count < 0) {
-                            count = 0;
-                        }
-
-                        $(it).removeClass('ft-red').html(' <span class="icon-star"></span> ' + count + ' ')
-                                .attr("onclick", "Util.follow(this, '" + id + "', '" + type + "')")
-                                .attr("title", Label.collectLabel);
-                    } else if (from && 'tag-articles' === from) {
-                        $(it).removeClass("ft-red").addClass("ft-gray")
-                                .attr("onclick", "Util.follow(this, '" + id + "', '" + type + "', 'tag-articles')")
-                                .attr('title', Label.followLabel);
+                    if ("article" === type || ("tag" === type && typeof (index) !== 'undefined')) {
+                        $(it).removeClass('ft-red').html('<span class="icon-star"></span>')
+                                .attr("onclick", "Util.follow(this, '" + id + "', '" + type + "'," + (index - 1) + ")")
+                                .attr("aria-label", Label.collectLabel + ' ' + (index - 1));
                     } else {
                         $(it).removeClass("red").addClass("green")
                                 .attr("onclick", "Util.follow(this, '" + id + "', '" + type + "')")
@@ -534,90 +537,6 @@ var Util = {
             },
             complete: function () {
                 $(it).removeClass("disabled");
-            }
-        });
-    },
-    /**
-     * @description 赞同
-     * @param {String} id 赞同的实体数据 id
-     * @param {String} type 赞同的实体类型
-     */
-    voteUp: function (id, type) {
-        if ($("#voteUp").hasClass("disabled")) {
-            return false;
-        }
-
-        var requestJSONObject = {
-            dataId: id
-        };
-
-        $("#voteUp").addClass("disabled");
-
-        $.ajax({
-            url: "/vote/up/" + type,
-            type: "POST",
-            cache: false,
-            data: JSON.stringify(requestJSONObject),
-            success: function (result, textStatus) {
-                $("#voteUp").removeClass("disabled");
-                var upCnt = parseInt($("#voteUp").attr('title').substr(3)),
-                        downCnt = parseInt($("#voteDown").attr('title').substr(3));
-                if (result.sc) {
-                    if (0 == result.type) { // cancel up
-                        $("#voteUp").removeClass("ft-red").attr('title', Label.upLabel + ' ' + (upCnt - 1));
-                    } else {
-                        $("#voteUp").addClass("ft-red").attr('title', Label.upLabel + ' ' + (upCnt + 1));
-                        if ($("#voteDown").hasClass('ft-red')) {
-                            $("#voteDown").removeClass("ft-red").attr('title', Label.downLabel + ' ' + (downCnt - 1));
-                        }
-                    }
-
-                    return;
-                }
-
-                alert(result.msg);
-            }
-        });
-    },
-    /**
-     * @description 反对
-     * @param {String} id 反对的实体数据 id
-     * @param {String} type 反对的实体类型
-     */
-    voteDown: function (id, type) {
-        if ($("#voteDown").hasClass("disabled")) {
-            return false;
-        }
-
-        var requestJSONObject = {
-            dataId: id
-        };
-
-        $("#voteDown").addClass("disabled");
-
-        $.ajax({
-            url: "/vote/down/" + type,
-            type: "POST",
-            cache: false,
-            data: JSON.stringify(requestJSONObject),
-            success: function (result, textStatus) {
-                $("#voteDown").removeClass("disabled");
-                var upCnt = parseInt($("#voteUp").attr('title').substr(3)),
-                        downCnt = parseInt($("#voteDown").attr('title').substr(3));
-                if (result.sc) {
-                    if (1 == result.type) { // cancel down
-                        $("#voteDown").removeClass("ft-red").attr('title', Label.downLabel + ' ' + (downCnt - 1));
-                    } else {
-                        $("#voteDown").addClass("ft-red").attr('title', Label.downLabel + ' ' + (downCnt + 1));
-                        if ($("#voteUp").hasClass('ft-red')) {
-                            $("#voteUp").removeClass("ft-red").attr('title', Label.upLabel + ' ' + (upCnt - 1));
-                        }
-                    }
-
-                    return;
-                }
-
-                alert(result.msg);
             }
         });
     },
@@ -650,9 +569,9 @@ var Util = {
      * @description 禁止 IE7 以下浏览器访问
      */
     _kill: function () {
-        if ($.browser.msie && parseInt($.browser.version) < 10) {
+        if ($.ua.browser.name === 'IE' && parseInt($.ua.browser.version) < 10) {
             $.ajax({
-                url: "/kill-browser",
+                url: Label.servePath + "/kill-browser",
                 type: "GET",
                 cache: false,
                 success: function (result, textStatus) {
@@ -660,8 +579,8 @@ var Util = {
                     $("#killBrowser").dialog({
                         "modal": true,
                         "hideFooter": true,
-                        "height": 258,
-                        "width": 530
+                        "height": 345,
+                        "width": 600
                     });
                     $("#killBrowser").dialog("open");
                 }
@@ -717,15 +636,15 @@ var Util = {
     /**
      * @description 初识化前台页面
      */
-    init: function () {
+    init: function (isLoggedIn) {
         //禁止 IE7 以下浏览器访问
         this._kill();
         // 导航
         this._initNav();
         // 每日活跃
         this._initActivity();
-        // 自动添加链接
-        $('.content-reset').linkify();
+        // 如果有列表就展现描述预览
+        this._initArticlePreview();
         // 登录密码输入框回车事件
         $("#loginPassword").keyup(function (event) {
             if (event.keyCode === 13) {
@@ -760,31 +679,62 @@ var Util = {
         });
 
         if (isLoggedIn) { // 如果登录了
+            Util.setUnreadNotificationCount();
+
             // 定时获取并设置未读提醒计数
             setInterval(function () {
                 Util.setUnreadNotificationCount();
             }, 60000);
         }
 
-
         console && console.log("%cCopyright \xa9 2012-%s, b3log.org & hacpai.com\n\n%cHacPai%c 平等、自由、奔放",
                 'font-size:12px;color:#999999;', (new Date).getFullYear(),
                 'font-family: "Helvetica Neue", "Luxi Sans", "DejaVu Sans", Tahoma, "Hiragino Sans GB", "Microsoft Yahei", sans-serif;font-size:64px;color:#404040;-webkit-text-fill-color:#404040;-webkit-text-stroke: 1px #777;',
                 'font-family: "Helvetica Neue", "Luxi Sans", "DejaVu Sans", Tahoma, "Hiragino Sans GB", "Microsoft Yahei", sans-serif;font-size:12px;color:#999999; font-style:italic;'
                 );
+        console && console.log("欢迎将你的开源项目提交到 B3log：https://github.com/b3log，我们一同构建中国最好的开源组织！\n细节请看：https://hacpai.com/article/1463025124998");
+
+    },
+    /**
+     * @description 用户状态 channel.
+     * @static
+     */
+    initUserChannel: function (channelServer) {
+        var userChannel = new ReconnectingWebSocket(channelServer);
+        userChannel.reconnectInterval = 10000;
+
+        userChannel.onopen = function () {
+            setInterval(function () {
+                userChannel.send('-hb-');
+            }, 1000 * 60 * 5);
+        };
+
+        userChannel.onmessage = function (evt) {
+        };
+
+        userChannel.onclose = function () {
+            userChannel.close();
+        };
+
+        userChannel.onerror = function (err) {
+            console.log("ERROR", err);
+        };
     },
     /**
      * @description 设置导航状态
      */
     _initNav: function () {
-        var pathname = location.pathname;
-        $(".nav div > a").each(function () {
-            if (pathname.indexOf($(this).attr("href")) === 0) {
+        var href = location.href;
+        $(".user-nav a").each(function () {
+            if (href.indexOf($(this).attr("href")) === 0) {
                 // 用户下面有两个页面：用户的评论及文章列表
                 $(this).addClass("current");
-            } else if (pathname === "/register") {
+            } else if (location.pathname === "/register") {
                 // 注册没有使用 href，对其进行特殊处理
                 $("#aRegister").addClass("current");
+            } else if (location.pathname === "/settings") {
+                // 注册没有使用 href，对其进行特殊处理
+                $(".user-nav .nav-avatar").addClass("current");
             }
         });
     },
@@ -808,7 +758,7 @@ var Util = {
                 userPassword: calcMD5($("#loginPassword").val())
             };
             $.ajax({
-                url: "/login",
+                url: Label.servePath + "/login",
                 type: "POST",
                 cache: false,
                 data: JSON.stringify(requestJSONObject),
@@ -872,6 +822,8 @@ var Util = {
      */
     uploadFile: function (obj) {
         var filename = "";
+        var ext = "";
+        var isImg = false;
 
         if ("" === obj.qiniuUploadToken) { // 说明没有使用七牛，而是使用本地
             $('#' + obj.id).fileupload({
@@ -883,21 +835,25 @@ var Util = {
                 add: function (e, data) {
                     filename = data.files[0].name;
 
+                    if (!filename) {
+                        ext = data.files[0].type.split("/")[1];
+                    }
+
                     if (window.File && window.FileReader && window.FileList && window.Blob) {
                         var reader = new FileReader();
                         reader.readAsArrayBuffer(data.files[0]);
                         reader.onload = function (evt) {
                             var fileBuf = new Uint8Array(evt.target.result.slice(0, 11));
-                            var mime = isImage(fileBuf);
+                            isImg = isImage(fileBuf);
 
-                            if (null === mime) {
-                                alert("Image only~");
+                            if (isImg && evt.target.result.byteLength > obj.imgMaxSize) {
+                                alert("This image is too large (max " + obj.imgMaxSize / 1024 / 1024 + "M)");
 
                                 return;
                             }
 
-                            if (evt.target.result.byteLength > obj.imgMaxSize) {
-                                alert("This image is too large (max " + obj.imgMaxSize / 1024 / 1024 + "M)");
+                            if (!isImg && evt.target.result.byteLength > obj.fileMaxSize) {
+                                alert("This file is too large (max " + obj.fileMaxSize / 1024 / 1024 + "M)");
 
                                 return;
                             }
@@ -928,12 +884,20 @@ var Util = {
                         return;
                     }
 
-                    var filename = new Date().getTime();
-
                     if (obj.editor.replaceRange) {
                         var cursor = obj.editor.getCursor();
-                        obj.editor.replaceRange('![' + filename + '](' + qiniuKey + ') \n\n',
-                                CodeMirror.Pos(cursor.line, cursor.ch - obj.uploadingLabel.length), cursor);
+
+                        if (!filename) {
+                            filename = new Date().getTime();
+                        }
+
+                        if (isImg) {
+                            obj.editor.replaceRange('![' + filename + '](' + qiniuKey + ') \n\n',
+                                    CodeMirror.Pos(cursor.line, cursor.ch - obj.uploadingLabel.length), cursor);
+                        } else {
+                            obj.editor.replaceRange('[' + filename + '](' + qiniuKey + ') \n\n',
+                                    CodeMirror.Pos(cursor.line, cursor.ch - obj.uploadingLabel.length), cursor);
+                        }
                     } else {
                         obj.editor.$it.val(obj.editor.$it.val() + '![' + filename + '](' + qiniuKey + ') \n\n');
                         $('#' + obj.id + ' input').prop('disabled', false);
@@ -959,7 +923,6 @@ var Util = {
             return;
         }
 
-        var ext = "";
         $('#' + obj.id).fileupload({
             multipart: true,
             pasteZone: obj.pasteZone,
@@ -978,16 +941,16 @@ var Util = {
                     reader.readAsArrayBuffer(data.files[0]);
                     reader.onload = function (evt) {
                         var fileBuf = new Uint8Array(evt.target.result.slice(0, 11));
-                        var mime = isImage(fileBuf);
+                        isImg = isImage(fileBuf);
 
-                        if (null == mime) {
-                            alert("Image only~");
+                        if (isImg && evt.target.result.byteLength > obj.imgMaxSize) {
+                            alert("This image is too large (max " + obj.imgMaxSize / 1024 / 1024 + "M)");
 
                             return;
                         }
 
-                        if (evt.target.result.byteLength > 1024 * 1024) {
-                            alert("This image is too large (max " + obj.imgMaxSize / 1024 / 1024 + "M)");
+                        if (!isImg && evt.target.result.byteLength > obj.fileMaxSize) {
+                            alert("This file is too large (max " + obj.fileMaxSize / 1024 / 1024 + "M)");
 
                             return;
                         }
@@ -1002,10 +965,12 @@ var Util = {
                 var data = form.serializeArray();
 
                 if (filename) {
-                    ext = filename.substring(filename.lastIndexOf(".") + 1);
+                    filename = filename.replace(/ /g, "_");
+                    data.push({name: 'key', value: "file/" + getUUID() + "/" + filename});
+                } else {
+                    data.push({name: 'key', value: getUUID() + "." + ext});
                 }
 
-                data.push({name: 'key', value: getUUID() + "." + ext});
                 data.push({name: 'token', value: obj.qiniuUploadToken});
 
                 return data;
@@ -1026,12 +991,20 @@ var Util = {
                     return;
                 }
 
-                var filename = new Date().getTime();
-
                 if (obj.editor.replaceRange) {
                     var cursor = obj.editor.getCursor();
-                    obj.editor.replaceRange('![' + filename + '](' + obj.qiniuDomain + '/' + qiniuKey + ') \n\n',
-                            CodeMirror.Pos(cursor.line, cursor.ch - obj.uploadingLabel.length), cursor);
+
+                    if (!filename) {
+                        filename = new Date().getTime();
+                    }
+
+                    if (isImg) {
+                        obj.editor.replaceRange('![' + filename + '](' + obj.qiniuDomain + '/' + qiniuKey + ') \n\n',
+                                CodeMirror.Pos(cursor.line, cursor.ch - obj.uploadingLabel.length), cursor);
+                    } else {
+                        obj.editor.replaceRange('[' + filename + '](' + obj.qiniuDomain + '/' + qiniuKey + ') \n\n',
+                                CodeMirror.Pos(cursor.line, cursor.ch - obj.uploadingLabel.length), cursor);
+                    }
                 } else {
                     obj.editor.$it.val('![' + filename + '](' + obj.qiniuDomain + '/' + qiniuKey + ') \n\n');
                     $('#' + obj.id + ' input').prop('disabled', false);
@@ -1212,6 +1185,10 @@ function arrayEquals(arr1, arr2) {
 }
 
 function isImage(buf) {
+    return null !== getImageMime(buf);
+}
+
+function getImageMime(buf) {
     if (buf == null || buf == 'undefined' || buf.length < 8) {
         return null;
     }
@@ -1305,4 +1282,137 @@ function getUUID() {
 
     return ret;
 }
-;
+
+/**
+ * @description Audio
+ * @static
+ */
+var Audio = {
+    availabel: false,
+    wavFileBlob: null,
+    recorderObj: null,
+    /**
+     * @description 初识化音频
+     */
+    init: function () {
+        var detectGetUserMedia = new BrowserGetUserMediaDetection();
+
+        //First, check to see if get user media is supported:
+        console.log("Get user media supported: " + detectGetUserMedia.getUserMediaSupported());
+
+        if (detectGetUserMedia.getUserMediaSupported()) {
+            console.log("Get user media is supported!");
+            console.log("Supported get user media method: " + detectGetUserMedia.getUserMediaMethod());
+
+            console.log("Assigning get user media method.");
+            navigator.getUserMedia = detectGetUserMedia.getUserMediaMethod();
+
+            console.log("Requesting microphone access from browser.");
+            navigator.getUserMedia({audio: true}, success, failure);
+        } else {
+            console.log("ERROR: getUserMedia not supported by browser.");
+
+            alert('Your browser does not appear to support audio recording.');
+        }
+
+        //Get user media failure callback function:
+        function failure(e) {
+            console.log("getUserMedia->failure(): ERROR: Microphone access request failed!");
+
+            var errorMessageToDisplay;
+            var PERMISSION_DENIED_ERROR = "PermissionDeniedError";
+            var DEVICES_NOT_FOUND_ERROR = "DevicesNotFoundError";
+
+            console.log(e);
+            console.log(e.name);
+
+            switch (e.name) {
+                case PERMISSION_DENIED_ERROR:
+                    errorMessageToDisplay = Label.recordDeniedLabel;
+                    break;
+                case DEVICES_NOT_FOUND_ERROR:
+                    errorMessageToDisplay = Label.recordDeviceNotFoundLabel;
+                    break;
+                default:
+                    errorMessageToDisplay = 'ERROR: The following unexpected error occurred while attempting to connect to your microphone: ' + e.name;
+                    break;
+            }
+
+            console.log("getUserMedia->failure(): " + errorMessageToDisplay);
+            alert(errorMessageToDisplay);
+        }
+
+        //Get user media success callback function:
+        function success(e) {
+            console.log("getUserMedia->success(): Microphone access request was successful!");
+
+            var BUFFER_SIZE = 2048;
+            var RECORDING_MODE = PredefinedRecordingModes.MONO_5_KHZ; // 单声道 5kHz 最低的采样率
+            var SAMPLE_RATE = RECORDING_MODE.getSampleRate();
+            var OUTPUT_CHANNEL_COUNT = RECORDING_MODE.getChannelCount();
+
+            console.log("getUserMedia->success(): Detecting window audio context.");
+            var detectWindowAudioContext = new BrowserWindowAudioContextDetection();
+
+            if (detectWindowAudioContext.windowAudioContextSupported()) {
+                console.log("getUserMedia->success(): Window audio context supported.");
+
+                var windowAudioContext = detectWindowAudioContext.getWindowAudioContextMethod();
+
+                console.log("getUserMedia->success(): Window audio context method: " + windowAudioContext);
+
+                console.log('getUserMedia->success(): Creating recorder object.');
+
+                Audio.recorderObj = new SoundRecorder(windowAudioContext, BUFFER_SIZE, SAMPLE_RATE, OUTPUT_CHANNEL_COUNT);
+
+                console.log('getUserMedia->success(): Initializing recorder object.');
+                Audio.recorderObj.init(e);
+
+                console.log('getUserMedia->success(): Assigning onaudioprocess event function.');
+
+                Audio.recorderObj.recorder.onaudioprocess = function (e)
+                {
+                    //Do nothing if not recording:
+                    if (!Audio.recorderObj.isRecording()) {
+                        return;
+                    }
+
+                    // Copy the data from the input buffers;
+                    var left = e.inputBuffer.getChannelData(0);
+                    var right = e.inputBuffer.getChannelData(1);
+                    Audio.recorderObj.cloneChannelData(left, right);
+                    console.log('SoundRecorder.recorder.onaudioprocess: Saving audio data...');
+                };
+
+                console.log('getUserMedia->success(): Recorder object successfully created and initialized.');
+                console.log('getUserMedia->success(): Recorder object ready status: ' + Audio.recorderObj.isReady());
+
+                Audio.availabel = true;
+            } else {
+                var messageString = "Unable to detect window audio context, cannot continue.";
+                console.log("getUserMedia->success(): " + messageString);
+                alert(messageString);
+
+                return;
+            }
+        }
+    },
+    /**
+     * @description 开始录音
+     */
+    handleStartRecording: function () {
+        console.log("Starting new recording...");
+        Audio.recorderObj.startRecordingNewWavFile();
+    },
+    /**
+     * @description 结束录音
+     */
+    handleStopRecording: function () {
+        console.log("Stopping recording.");
+        Audio.recorderObj.stopRecording();
+
+        //Save the recording by building the wav file blob and send it to the client:
+        console.log("Building wav file.");
+        Audio.wavFileBlob = Audio.recorderObj.buildWavFileBlob();
+    }
+};

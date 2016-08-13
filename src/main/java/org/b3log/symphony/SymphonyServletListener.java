@@ -26,6 +26,7 @@ import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import javax.servlet.http.HttpSessionEvent;
+import org.apache.commons.lang.StringUtils;
 import org.b3log.latke.Keys;
 import org.b3log.latke.Latkes;
 import org.b3log.latke.event.EventManager;
@@ -48,6 +49,7 @@ import org.b3log.symphony.cache.DomainCache;
 import org.b3log.symphony.cache.TagCache;
 import org.b3log.symphony.event.ArticleBaiduSender;
 import org.b3log.symphony.event.ArticleNotifier;
+import org.b3log.symphony.event.ArticleQQSender;
 import org.b3log.symphony.event.ArticleSearchAdder;
 import org.b3log.symphony.event.ArticleSearchUpdater;
 import org.b3log.symphony.event.CommentNotifier;
@@ -63,6 +65,7 @@ import org.b3log.symphony.repository.UserRepository;
 import org.b3log.symphony.service.ArticleMgmtService;
 import org.b3log.symphony.service.UserMgmtService;
 import org.b3log.symphony.service.UserQueryService;
+import org.b3log.symphony.util.Crypts;
 import org.b3log.symphony.util.Symphonys;
 import org.json.JSONObject;
 
@@ -70,7 +73,7 @@ import org.json.JSONObject;
  * Symphony servlet listener.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 2.12.4.6, Apr 21, 2016
+ * @version 2.13.6.8, Jul 29, 2016
  * @since 0.2.0
  */
 public final class SymphonyServletListener extends AbstractServletListener {
@@ -78,7 +81,7 @@ public final class SymphonyServletListener extends AbstractServletListener {
     /**
      * Symphony version.
      */
-    public static final String VERSION = "1.3.0";
+    public static final String VERSION = "1.4.0";
 
     /**
      * Logger.
@@ -123,6 +126,9 @@ public final class SymphonyServletListener extends AbstractServletListener {
 
         final ArticleBaiduSender articleBaiduSender = beanManager.getReference(ArticleBaiduSender.class);
         eventManager.registerListener(articleBaiduSender);
+
+        final ArticleQQSender articleQQSender = beanManager.getReference(ArticleQQSender.class);
+        eventManager.registerListener(articleQQSender);
 
         final CommentNotifier commentNotifier = beanManager.getReference(CommentNotifier.class);
         eventManager.registerListener(commentNotifier);
@@ -191,7 +197,7 @@ public final class SymphonyServletListener extends AbstractServletListener {
         final String userAgentStr = httpServletRequest.getHeader("User-Agent");
 
         final UserAgent userAgent = UserAgent.parseUserAgentString(userAgentStr);
-        final BrowserType browserType = userAgent.getBrowser().getBrowserType();
+        BrowserType browserType = userAgent.getBrowser().getBrowserType();
 
         if (BrowserType.ROBOT == browserType) {
             LOGGER.log(Level.DEBUG, "Request made from a search engine[User-Agent={0}]", httpServletRequest.getHeader("User-Agent"));
@@ -207,6 +213,9 @@ public final class SymphonyServletListener extends AbstractServletListener {
         }
 
         Stopwatchs.start("Request initialized [" + httpServletRequest.getRequestURI() + "]");
+
+        // For QQ Mobile browser
+        browserType = StringUtils.containsIgnoreCase(userAgentStr, "mobile") ? BrowserType.MOBILE_BROWSER : browserType;
 
         httpServletRequest.setAttribute(Common.IS_MOBILE, BrowserType.MOBILE_BROWSER == browserType);
 
@@ -229,7 +238,7 @@ public final class SymphonyServletListener extends AbstractServletListener {
             if (!isStatic) {
                 Stopwatchs.end();
 
-                final long elapsed = Stopwatchs.getElapsed("Request initialized");
+                final long elapsed = Stopwatchs.getElapsed("Request initialized [" + request.getRequestURI() + "]");
                 if (elapsed > Symphonys.getInt("perfromance.threshold")) {
                     LOGGER.log(Level.INFO, "Stopwatch: {0}{1}", new Object[]{Strings.LINE_SEPARATOR, Stopwatchs.getTimingStat()});
                 }
@@ -400,7 +409,8 @@ public final class SymphonyServletListener extends AbstractServletListener {
                             continue;
                         }
 
-                        final JSONObject cookieJSONObject = new JSONObject(cookie.getValue());
+                        final String value = Crypts.decryptByAES(cookie.getValue(), Symphonys.get("cookie.secret"));
+                        final JSONObject cookieJSONObject = new JSONObject(value);
 
                         final String userId = cookieJSONObject.optString(Keys.OBJECT_ID);
                         if (Strings.isEmptyOrNull(userId)) {
@@ -415,7 +425,7 @@ public final class SymphonyServletListener extends AbstractServletListener {
                         }
                     }
                 } catch (final Exception e) {
-                    LOGGER.warn(e.getMessage());
+                    LOGGER.log(Level.ERROR, "Read cookie failed", e);
                 }
 
                 if (null == user) {

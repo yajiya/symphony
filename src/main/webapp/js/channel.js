@@ -18,7 +18,8 @@
  * @fileoverview Message channel via WebSocket.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.7.6.5, Apr 13, 2016
+ * @author <a href="http://vanessa.b3log.org">Liyuan Li</a>
+ * @version 1.9.8.10, Aug 10, 2016
  */
 
 /**
@@ -47,7 +48,6 @@ var ArticleChannel = {
 
         ArticleChannel.ws.onmessage = function (evt) {
             var data = JSON.parse(evt.data);
-            // console.log(data);
 
             if (Label.articleOId !== data.articleId) { // It's not the current article
                 return;
@@ -55,65 +55,100 @@ var ArticleChannel = {
 
             switch (data.type) {
                 case "comment":
-                    if (0 === Label.userCommentViewMode) { // tranditional view mode
-                        return;
-                    }
+                    var cmtCount = parseInt($("#comments .comment-header h2").text()) + 1;
+                    // 总帖数更新
+                    $("#comments .comment-header h2").text(cmtCount + ' ' + Label.cmtLabel);
 
-                    $("#comments .comment-header h2").text((parseInt($("#comments .comment-header h2").text()) + 1) + ' ' + Label.cmtLabel);
+                    // 新增第一条评论时到底部的锚点
                     var bottomCmt = '';
                     if ($('#comments > ul li').length === 0) {
                         bottomCmt = '<div id="bottomComment"></div>';
                     }
+
+                    // ua
                     var UAName = Util.getDeviceByUa(data.commentUA);
                     if (UAName !== '') {
                         UAName = ' <span class="cmt-via">via ' + UAName + '</span>';
                     }
-                    // Append comment
-                    var template = "<li class=\"fn-none\" id=\"${comment.oId}\">" + bottomCmt +
-                            "<div class=\"fn-flex\">" +
-                            "<a rel=\"nofollow\" href=\"/member/${comment.commentAuthorName}\">" +
-                            "<img class=\"avatar\"" +
-                            "title=\"${comment.commentAuthorName}\" src=\"${comment.commentAuthorThumbnailURL}-64.jpg?${comment.thumbnailUpdateTime}\" />" +
-                            "</a>" +
-                            "<div class=\"fn-flex-1 comment-content\">" +
-                            "<div class=\"fn-clear comment-info\">" +
-                            "<span class=\"fn-left\">" +
-                            "<a rel=\"nofollow\" href=\"/member/${comment.commentAuthorName}\"" +
-                            "title=\"${comment.commentAuthorName}\">${comment.commentAuthorName}</a>" +
-                            "<span class=\"ft-fade ft-smaller\">&nbsp;•&nbsp;${comment.timeAgo}" + UAName + "</span>" +
-                            "</span>" +
-                            "<span class=\"fn-right\">" +
-                            "<span class='fn-none thx fn-pointer ft-smaller ft-fade' id='${comment.oId}Thx'" +
-                            "   onclick=\"Comment.thank('${comment.oId}', '" + Label.csrfToken + "', '${comment.commentThankLabel}', '${comment.thankedLabel}')\">${comment.thankLabel}</span> " +
-                            "<span class=\"icon-reply fn-pointer\" onclick=\"Comment.replay('@${comment.commentAuthorName} ')\"></span> " +
-                            "#<i>" + parseInt($("#comments .comment-header h2").text()) + "</i>" +
-                            "</span>    " +
-                            "</div>" +
-                            "<div class=\"content-reset comment\">" +
-                            "${comment.commentContent}" +
-                            "</div>" +
-                            "</div>" +
-                            "</div>" +
-                            "</li>";
 
-                    template = replaceAll(template, "${comment.oId}", data.commentId);
-                    template = replaceAll(template, "${comment.commentAuthorName}", data.commentAuthorName);
-                    template = replaceAll(template, "${comment.commentAuthorThumbnailURL}", data.commentAuthorThumbnailURL);
-                    template = replaceAll(template, "${comment.thumbnailUpdateTime}", data.thumbnailUpdateTime);
-                    template = replaceAll(template, "${comment.commentContent}", data.commentContent);
-                    template = replaceAll(template, "${comment.commentCreateTime}", data.commentCreateTime);
-                    template = replaceAll(template, "${comment.timeAgo}", data.timeAgo);
-                    template = replaceAll(template, "${comment.thankLabel}", data.thankLabel);
-                    template = replaceAll(template, "${comment.thankedLabel}", data.thankedLabel);
-                    template = replaceAll(template, "${comment.commentThankLabel}", data.commentThankLabel);
+                    var template = '<li id="' + data.commentId + '" class="fn-none">'
+                            + bottomCmt + '<div class="fn-flex">';
 
-                    $("#comments > ul").prepend(template);
+                    if (!data.fromClient) {
+                        if (data.commentAuthorName !== 'someone') {
+                            template += '<a rel="nofollow" href="/member/' + data.commentAuthorName + '">';
+                        }
+                        template += '<div class="avatar tooltipped tooltipped-se" aria-label="' + data.commentAuthorName + '" style="background-image:url('
+                                + data.commentAuthorThumbnailURL + '?imageView2/1/w/64/h/64/interlace/0/q/80)"></div>';
+                        if (data.commentAuthorName !== 'someone') {
+                            template += '</a>';
+                        }
+                    } else {
+                        template += '<div class="avatar tooltipped tooltipped-se" aria-label="' + data.commentAuthorName + '" style="background-image:url('
+                                + data.commentAuthorThumbnailURL + '?imageView2/1/w/64/h/64/interlace/0/q/80)"></div>';
+                    }
 
-                    $("#comments > ul > li:first").linkify();
+                    template += '<div class="fn-flex-1 comment-content">'
+                            + '<div class="fn-clear comment-info">'
+                            + '<span class="fn-left">';
+
+                    if (!data.fromClient) {
+                        if (data.commentAuthorName !== 'someone') {
+                            template += '<a rel="nofollow" href="/member/' + data.commentAuthorName + '">';
+                        }
+                        template += data.commentAuthorName;
+                        if (data.commentAuthorName !== 'someone') {
+                            template += '</a>';
+                        }
+                    } else {
+                        template += data.commentAuthorName + ' via <a rel="nofollow" href="https://hacpai.com/article/1457158841475">API</a>';
+                    }
+                    template += '<span class="ft-fade ft-smaller"> • ' + data.timeAgo;
+
+                    if (data.userUAStatus === 0) {
+                        template += UAName;
+                    }
+
+                    template += '</span></span><span class="fn-right">';
+
+                    if (Label.isLoggedIn) {
+                        if (data.commentAuthorName !== Label.currentUserName) {
+                            template += '<span class="fn-hidden hover-show fn-pointer ft-smaller ft-fade tooltipped tooltipped-s" id="' + data.commentId + 'Thx"'
+                                    + ' aria-label="' + Label.thankLabel + '" onclick="Comment.thank(\'' + data.commentId + '\', \'' + Label.csrfToken
+                                    + '\', \'' + data.commentThankLabel + '\','
+                                    + (data.commentAuthorName === 'someone' ? 1 : 0) + ')"><span class="icon-heart"></span></span> ';
+                        }
+
+                        template += '<span id="voteUp_comment' + data.commentId + '" class="ft-smaller tooltipped tooltipped-s fn-pointer fn-hidden hover-show ft-fade" '
+                                + 'aria-label="' + Label.upLabel + ' 0"'
+                                + 'onclick="Article.voteUp(\'' + data.commentId + '\', \'comment\')">'
+                                + '<span class="icon-thumbs-up"></span></span> '
+                                + '<span id="voteDown_comment' + data.commentId + '" class="ft-smaller tooltipped tooltipped-s fn-pointer fn-hidden hover-show ft-fade"'
+                                + 'aria-label="' + Label.downLabel + ' 0" '
+                                + 'onclick="Article.voteDown(\'' + data.commentId + '\', \'comment\')">'
+                                + '<span class="icon-thumbs-down"></span></span> ';
+
+                        if (data.commentAuthorName !== Label.currentUserName && data.commentAuthorName !== 'someone') {
+                            template += ' <span aria-label="@' + data.commentAuthorName + '" class="ft-smaller fn-pointer tooltipped tooltipped-s" onclick="Comment.replay(\'@'
+                                    + data.commentAuthorName + ' \')"><span class="icon-reply"></span></span> ';
+                        }
+                    }
+
+                    if (Label.isAdminLoggedIn) {
+                        template += '<a class="ft-smaller tooltipped tooltipped-s ft-a-icon" href="/admin/comment/' + data.commentId
+                                + '" aria-label="' + Label.adminLabel + '"><span class="icon-setting"></span></a> ';
+                    }
+
+                    template += '#<i>' + cmtCount + '</i></span></div><div class="content-reset comment">'
+                            + data.commentContent + '</div></div></div></li>';
+
+                    if (0 === Label.userCommentViewMode) { // tranditional view mode
+                        $("#comments > ul").append(template);
+                    } else {
+                        $("#comments > ul").prepend(template);
+                    }
                     Article.parseLanguage();
-
                     $("#" + data.commentId).fadeIn(2000);
-
                     break;
                 case "articleHeat":
                     var $heatBar = $("#heatBar"),
@@ -205,7 +240,7 @@ var ArticleListChannel = {
         };
 
         ArticleListChannel.ws.onerror = function (err) {
-            console.log("ERROR", err)
+            console.log("ERROR", err);
         };
     }
 };
@@ -224,7 +259,7 @@ var TimelineChannel = {
     /**
      * @description Initializes message channel
      */
-    init: function (channelServer) {
+    init: function (channelServer, timelineCnt) {
         TimelineChannel.ws = new ReconnectingWebSocket(channelServer);
         TimelineChannel.ws.reconnectInterval = 10000;
 
@@ -263,7 +298,7 @@ var TimelineChannel = {
         };
 
         TimelineChannel.ws.onerror = function (err) {
-            console.log("ERROR", err)
+            console.log("ERROR", err);
         };
     }
 };
@@ -300,20 +335,31 @@ var ChatRoomChannel = {
                     $("#onlineCnt").text(data.onlineChatCnt);
                     break;
                 case "msg":
+                    var enableUserLink = data.userAvatarURL.indexOf("user-thumbnail.png") < 0;
+                    var avatarPart = '<a rel="nofollow" href="/member/' + data.userName + '">'
+                            + '<div class="avatar tooltipped tooltipped-se" aria-label="' + data.userName 
+                            + '" style="background-image:url(' + data.userAvatarURL + '?imageView2/1/w/64/h/64/interlace/0/q/80)"></div>'
+                            + '</a>';
+                    if (!enableUserLink) {
+                        avatarPart = '<div class="avatar tooltipped tooltipped-se" aria-label="' + data.userName 
+                                + '" style="background-image:url(' + data.userAvatarURL + '?imageView2/1/w/64/h/64/interlace/0/q/80)"></div>';
+                    }
+
+                    var namePart = '<a rel="nofollow" href="/member/' + data.userName + '">' + data.userName + '</a>';
+                    if (!enableUserLink) {
+                        namePart = data.userName;
+                    }
+
                     var liHTML = '<li class="fn-none">'
                             + '<div class="fn-flex">'
-                            + '<a rel="nofollow" href="/member/' + data.userName + '">'
-                            + '<div class="avatar" '
-                            + 'title="' + data.userName + '" style="background-image:url(' + data.userAvatarURL + '-64.jpg)"></div>'
-                            + '</a>'
+                            + avatarPart
                             + '<div class="fn-flex-1">'
                             + '<div class="fn-clear">'
                             + '<span class="fn-left">'
-                            + '<a rel="nofollow" href="/member/' + data.userName + '" '
-                            + 'title="' + data.userName + '">' + data.userName + '</a>'
+                            + namePart
                             + '</span>'
                             + '</div>'
-                            + '<div class="content-reset">'
+                            + '<div class="content-reset comment">'
                             + data.content
                             + '</div>'
                             + '</div>'
@@ -338,15 +384,7 @@ var ChatRoomChannel = {
         };
 
         ChatRoomChannel.ws.onerror = function (err) {
-            console.log("ERROR", err)
+            console.log("ERROR", err);
         };
     }
 };
-
-function escapeRegExp(string) {
-    return string.replace(/([.*+?^=!:${}()|\[\]\/\\])/g, "\\$1");
-}
-
-function replaceAll(string, find, replace) {
-    return string.replace(new RegExp(escapeRegExp(find), 'g'), replace);
-}

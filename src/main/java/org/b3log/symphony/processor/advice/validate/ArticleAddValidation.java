@@ -47,7 +47,7 @@ import org.json.JSONObject;
  * Validates for article adding locally.
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.3.3.7, Apr 5, 2016
+ * @version 1.3.4.9, Jul 28, 2016
  * @since 0.2.0
  */
 @Named
@@ -62,7 +62,7 @@ public class ArticleAddValidation extends BeforeRequestProcessAdvice {
     /**
      * Max article content length.
      */
-    public static final int MAX_ARTICLE_CONTENT_LENGTH = 1048576;
+    public static final int MAX_ARTICLE_CONTENT_LENGTH = 102400;
 
     /**
      * Min article content length.
@@ -72,7 +72,7 @@ public class ArticleAddValidation extends BeforeRequestProcessAdvice {
     /**
      * Max article reward content length.
      */
-    public static final int MAX_ARTICLE_REWARD_CONTENT_LENGTH = 1048576;
+    public static final int MAX_ARTICLE_REWARD_CONTENT_LENGTH = 102400;
 
     /**
      * Min article reward content length.
@@ -127,6 +127,10 @@ public class ArticleAddValidation extends BeforeRequestProcessAdvice {
         String articleTags = requestJSONObject.optString(Article.ARTICLE_TAGS);
         articleTags = Tag.formatTags(articleTags);
 
+        if (StringUtils.isBlank(articleTags)) {
+            throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("tagsEmptyErrorLabel")));
+        }
+
         if (optionQueryService.containReservedWord(articleTags)) {
             throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("contentContainReservedWordLabel")));
         }
@@ -145,12 +149,14 @@ public class ArticleAddValidation extends BeforeRequestProcessAdvice {
                     throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("tagsErrorLabel")));
                 }
 
-                if (!Tag.TAG_TITLE_PATTERN.matcher(tagTitle).matches()) {
-                    throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("tagsErrorLabel")));
-                }
+                if (!Tag.containsWhiteListTags(tagTitle)) {
+                    if (!Tag.TAG_TITLE_PATTERN.matcher(tagTitle).matches()) {
+                        throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("tagsErrorLabel")));
+                    }
 
-                if (Strings.isEmptyOrNull(tagTitle) || tagTitle.length() > Tag.MAX_TAG_TITLE_LENGTH || tagTitle.length() < 1) {
-                    throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("tagsErrorLabel")));
+                    if (tagTitle.length() > Tag.MAX_TAG_TITLE_LENGTH) {
+                        throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, langPropsService.get("tagsErrorLabel")));
+                    }
                 }
 
                 final JSONObject currentUser = (JSONObject) request.getAttribute(User.USER);
@@ -177,8 +183,10 @@ public class ArticleAddValidation extends BeforeRequestProcessAdvice {
         articleContent = StringUtils.strip(articleContent);
         if (Strings.isEmptyOrNull(articleContent) || articleContent.length() > MAX_ARTICLE_CONTENT_LENGTH
                 || articleContent.length() < MIN_ARTICLE_CONTENT_LENGTH) {
-            throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG,
-                    langPropsService.get("articleContentErrorLabel")));
+            String msg = langPropsService.get("articleContentErrorLabel");
+            msg = msg.replace("{maxArticleContentLength}", String.valueOf(MAX_ARTICLE_CONTENT_LENGTH));
+
+            throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, msg));
         }
 
         if (optionQueryService.containReservedWord(articleContent)) {
@@ -194,8 +202,10 @@ public class ArticleAddValidation extends BeforeRequestProcessAdvice {
             final String articleRewardContnt = requestJSONObject.optString(Article.ARTICLE_REWARD_CONTENT);
             if (Strings.isEmptyOrNull(articleRewardContnt) || articleRewardContnt.length() > MAX_ARTICLE_CONTENT_LENGTH
                     || articleRewardContnt.length() < MIN_ARTICLE_CONTENT_LENGTH) {
-                throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG,
-                        langPropsService.get("articleRewardContentErrorLabel")));
+                String msg = langPropsService.get("articleRewardContentErrorLabel");
+                msg = msg.replace("{maxArticleRewardContentLength}", String.valueOf(MAX_ARTICLE_REWARD_CONTENT_LENGTH));
+
+                throw new RequestProcessAdviceException(new JSONObject().put(Keys.MSG, msg));
             }
         }
     }

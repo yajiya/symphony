@@ -19,7 +19,7 @@
  *
  * @author <a href="http://vanessa.b3log.org">Liyuan Li</a>
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.8.3.7, Mar 28, 2016
+ * @version 1.13.7.11, Aug 9, 2016
  */
 
 /**
@@ -27,6 +27,159 @@
  * @static
  */
 var Settings = {
+    /**
+     * 初始化个人设置中的头像图片上传.
+     * 
+     * @returns {Boolean}
+     */
+    initUploadAvatar: function (params, succCB, succCBQN) {
+        var ext = "";
+        if ("" === params.qiniuUploadToken) { // 说明没有使用七牛，而是使用本地
+            $('#' + params.id).fileupload({
+                acceptFileTypes: /(\.|\/)(gif|jpe?g|png)$/i,
+                maxFileSize: parseInt(params.maxSize),
+                multipart: true,
+                pasteZone: null,
+                dropZone: null,
+                url: "/upload",
+                add: function (e, data) {
+                    ext = data.files[0].type.split("/")[1];
+
+                    if (window.File && window.FileReader && window.FileList && window.Blob) {
+                        var reader = new FileReader();
+                        reader.readAsArrayBuffer(data.files[0]);
+                        reader.onload = function (evt) {
+                            var fileBuf = new Uint8Array(evt.target.result.slice(0, 11));
+                            var isImg = isImage(fileBuf);
+
+                            if (!isImg) {
+                                alert("Image only~");
+
+                                return;
+                            }
+
+                            if (evt.target.result.byteLength > 1024 * 1024) {
+                                alert("This image is too large (max 1M)");
+
+                                return;
+                            }
+
+                            data.submit();
+                        };
+                    } else {
+                        data.submit();
+                    }
+                },
+                formData: function (form) {
+                    var data = form.serializeArray();
+                    return data;
+                },
+                submit: function (e, data) {
+                },
+                done: function (e, data) {
+                    var qiniuKey = data.result.key;
+                    if (!qiniuKey) {
+                        alert("Upload error");
+                        return;
+                    }
+
+                    succCB(data);
+                },
+                fail: function (e, data) {
+                    alert("Upload error: " + data.errorThrown);
+                }
+            }).on('fileuploadprocessalways', function (e, data) {
+                var currentFile = data.files[data.index];
+                if (data.files.error && currentFile.error) {
+                    alert(currentFile.error);
+                }
+            });
+        } else {
+            $('#' + params.id).fileupload({
+                acceptFileTypes: /(\.|\/)(gif|jpe?g|png)$/i,
+                maxFileSize: parseInt(params.maxSize),
+                multipart: true,
+                pasteZone: null,
+                dropZone: null,
+                url: "https://up.qbox.me/",
+                add: function (e, data) {
+                    ext = data.files[0].type.split("/")[1];
+
+                    if (window.File && window.FileReader && window.FileList && window.Blob) {
+                        var reader = new FileReader();
+                        reader.readAsArrayBuffer(data.files[0]);
+                        reader.onload = function (evt) {
+                            var fileBuf = new Uint8Array(evt.target.result.slice(0, 11));
+                            var isImg = isImage(fileBuf);
+
+                            if (!isImg) {
+                                alert("Image only~");
+
+                                return;
+                            }
+
+                            if (evt.target.result.byteLength > 1024 * 1024) {
+                                alert("This image is too large (max 1M)");
+
+                                return;
+                            }
+
+                            data.submit();
+                        };
+                    } else {
+                        data.submit();
+                    }
+                },
+                formData: function (form) {
+                    var data = form.serializeArray();
+                    data.push({name: 'token', value: params.qiniuUploadToken});
+                    data.push({name: 'key', value: 'avatar/' + params.userId + "_" + new Date().getTime() + "." + ext});
+
+                    console.log(data);
+
+                    return data;
+                },
+                submit: function (e, data) {
+                },
+                done: function (e, data) {
+                    var qiniuKey = data.result.key;
+                    if (!qiniuKey) {
+                        alert("Upload error");
+                        return;
+                    }
+
+                    succCBQN(data);
+                },
+                fail: function (e, data) {
+                    alert("Upload error: " + data.errorThrown);
+                }
+            }).on('fileuploadprocessalways', function (e, data) {
+                var currentFile = data.files[data.index];
+                if (data.files.error && currentFile.error) {
+                    alert(currentFile.error);
+                }
+            });
+        }
+    },
+    /**
+     * 数据导出.
+     */
+    exportPosts: function () {
+        $.ajax({
+            url: Label.servePath + "/export/posts",
+            type: "POST",
+            cache: false,
+            success: function (result, textStatus) {
+                if (!result.sc) {
+                    alert("TBD: V, tip display it....");
+
+                    return;
+                }
+
+                window.open(result.url);
+            }
+        });
+    },
     /**
      * @description 修改地理位置状态
      * @param {type} csrfToken CSRF token
@@ -37,7 +190,7 @@ var Settings = {
         };
 
         $.ajax({
-            url: "/settings/geo/status",
+            url: Label.servePath + "/settings/geo/status",
             type: "POST",
             headers: {"csrfToken": csrfToken},
             cache: false,
@@ -70,7 +223,7 @@ var Settings = {
             };
 
             $.ajax({
-                url: "/point/transfer",
+                url: Label.servePath + "/point/transfer",
                 type: "POST",
                 headers: {"csrfToken": csrfToken},
                 cache: false,
@@ -114,6 +267,9 @@ var Settings = {
             case "password":
                 requestJSONObject = this._validatePassword();
                 break;
+            case "misc":
+                requestJSONObject = this._validateMisc();
+                break;
             default:
                 console.log("update settings has no type");
         }
@@ -123,7 +279,7 @@ var Settings = {
         }
 
         $.ajax({
-            url: "/settings/" + type,
+            url: Label.servePath + "/settings/" + type,
             type: "POST",
             headers: {"csrfToken": csrfToken},
             cache: false,
@@ -138,9 +294,10 @@ var Settings = {
                 if (result.sc) {
                     $("#" + type.replace(/\//g, "") + "Tip").addClass("succ").removeClass("error").html('<ul><li>' + Label.updateSuccLabel + '</li></ul>');
                     if (type === 'profiles') {
-                        $('#avatarURLDom').attr('style', 'background-image:url(' + requestJSONObject.userAvatarURL + ')');
-                        $('#userIntroDom').text(requestJSONObject.userIntro);
+                        $('#userNicknameDom').text(requestJSONObject.userNickname);
+                        $('#userTagsDom').text(requestJSONObject.userTags);
                         $('#userURLDom').text(requestJSONObject.userURL).attr('href', requestJSONObject.userURL);
+                        $('#userIntroDom').text(requestJSONObject.userIntro);
                     }
                 } else {
                     $("#" + type.replace(/\//g, "") + "Tip").addClass("error").removeClass("succ").html('<ul><li>' + result.msg + '</li></ul>');
@@ -155,12 +312,45 @@ var Settings = {
         });
     },
     /**
+     * @description 需要在上传完成后调用该函数来更新用户头像数据.
+     * @argument {String} csrfToken CSRF token
+     */
+    updateAvatar: function (csrfToken) {
+        var requestJSONObject = {
+            userAvatarURL: $("#avatarURL").data("imageurl"),
+        };
+
+        $.ajax({
+            url: Label.servePath + "/settings/avatar",
+            type: "POST",
+            headers: {"csrfToken": csrfToken},
+            cache: false,
+            data: JSON.stringify(requestJSONObject),
+            beforeSend: function () {
+            },
+            error: function (jqXHR, textStatus, errorThrown) {
+                alert(errorThrown);
+            },
+            success: function (result, textStatus) {
+                if (result.sc) {
+                    $('#avatarURLDom, .user-nav .avatar-small').attr('style', 'background-image:url(' + requestJSONObject.userAvatarURL + ')');
+                }
+            }
+        });
+    },
+    /**
      * @description settings 页面 profiles 数据校验
      * @returns {boolean/obj} 当校验不通过时返回 false，否则返回校验数据值。
      */
     _validateProfiles: function () {
         if (Validate.goValidate({target: $('#profilesTip'),
             data: [{
+                    "target": $("#userNickname"),
+                    "type": "string",
+                    "min": 0,
+                    "max": 20,
+                    "msg": Label.invalidUserNicknameLabel
+                }, {
                     "target": $("#userTags"),
                     "type": "string",
                     "min": 0,
@@ -178,18 +368,12 @@ var Settings = {
                     "min": 0,
                     "max": 255,
                     "msg": Label.invalidUserIntroLabel
-                }, {
-                    "target": $("#avatarURL"),
-                    "type": "imgStyle",
-                    "msg": Label.invalidAvatarURLLabel
                 }]})) {
             return {
+                userNickname: $("#userNickname").val().replace(/(^\s*)|(\s*$)/g, ""),
                 userTags: $("#userTags").val().replace(/(^\s*)|(\s*$)/g, ""),
                 userURL: $("#userURL").val().replace(/(^\s*)|(\s*$)/g, ""),
                 userIntro: $("#userIntro").val().replace(/(^\s*)|(\s*$)/g, ""),
-                userAvatarURL: $("#avatarURL").data("imageurl"),
-                userJoinPointRank: $("#joinPointRank").prop("checked"),
-                userJoinUsedPointRank: $("#joinUsedPointRank").prop("checked"),
                 userCommentViewMode: $("#userCommentViewMode").val()
             };
         } else {
@@ -230,6 +414,28 @@ var Settings = {
         } else {
             return false;
         }
+    },
+    /**
+     * @description settings 页面其他（杂项）数据校验
+     * @returns {boolean/obj} 当校验不通过时返回 false，否则返回校验数据值。
+     */
+    _validateMisc: function () {
+        return {
+            userUAStatus: $("#userUAStatus").prop("checked"),
+            userNotifyStatus: $("#userNotifyStatus").prop("checked"),
+            userArticleStatus: $("#userArticleStatus").prop("checked"),
+            userCommentStatus: $("#userCommentStatus").prop("checked"),
+            userFollowingUserStatus: $("#userFollowingUserStatus").prop("checked"),
+            userFollowingTagStatus: $("#userFollowingTagStatus").prop("checked"),
+            userFollowingArticleStatus: $("#userFollowingArticleStatus").prop("checked"),
+            userFollowerStatus: $("#userFollowerStatus").prop("checked"),
+            userPointStatus: $("#userPointStatus").prop("checked"),
+            userOnlineStatus: $("#userOnlineStatus").prop("checked"),
+            userTimelineStatus: $("#userTimelineStatus").prop("checked"),
+            userJoinPointRank: $("#joinPointRank").prop("checked"),
+            userJoinUsedPointRank: $("#joinUsedPointRank").prop("checked"),
+            userListPageSize: $("#userListPageSize").val()
+        };
     },
     /**
      * @description settings 页面密码校验

@@ -18,11 +18,13 @@ package org.b3log.symphony.processor;
 import com.qiniu.util.Auth;
 import java.io.IOException;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import javax.inject.Inject;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import org.apache.commons.lang.StringUtils;
 import org.b3log.latke.Keys;
 import org.b3log.latke.logging.Level;
 import org.b3log.latke.logging.Logger;
@@ -34,32 +36,43 @@ import org.b3log.latke.servlet.annotation.Before;
 import org.b3log.latke.servlet.annotation.RequestProcessing;
 import org.b3log.latke.servlet.annotation.RequestProcessor;
 import org.b3log.latke.servlet.renderer.freemarker.AbstractFreeMarkerRenderer;
+import org.b3log.symphony.model.Article;
+import org.b3log.symphony.model.Comment;
 import org.b3log.symphony.model.Common;
+import org.b3log.symphony.model.Notification;
 import org.b3log.symphony.model.UserExt;
 import org.b3log.symphony.processor.advice.stopwatch.StopwatchEndAdvice;
 import org.b3log.symphony.processor.advice.stopwatch.StopwatchStartAdvice;
 import org.b3log.symphony.processor.advice.validate.ChatMsgAddValidation;
 import org.b3log.symphony.processor.channel.ChatRoomChannel;
 import static org.b3log.symphony.processor.channel.ChatRoomChannel.SESSIONS;
+import org.b3log.symphony.service.ArticleQueryService;
+import org.b3log.symphony.service.CommentMgmtService;
+import org.b3log.symphony.service.CommentQueryService;
+import org.b3log.symphony.service.NotificationMgmtService;
+import org.b3log.symphony.service.NotificationQueryService;
 import org.b3log.symphony.service.ShortLinkQueryService;
 import org.b3log.symphony.service.TuringQueryService;
 import org.b3log.symphony.service.UserMgmtService;
+import org.b3log.symphony.service.UserQueryService;
 import org.b3log.symphony.util.Emotions;
 import org.b3log.symphony.util.Filler;
 import org.b3log.symphony.util.Markdowns;
 import org.b3log.symphony.util.Symphonys;
 import org.json.JSONObject;
+import org.jsoup.Jsoup;
 
 /**
  * Chat room processor.
  *
  * <ul>
- * <li>Shows char room (/cr), GET</li>
+ * <li>Shows char room (/cr, /chat-room, /community), GET</li>
  * <li>Sends chat message (/chat-room/send), POST</li>
+ * <li>Receives <a href="https://github.com/b3log/xiaov">XiaoV</a> message (/community/push), POST</li>
  * </ul>
  *
  * @author <a href="http://88250.b3log.org">Liang Ding</a>
- * @version 1.0.2.3, Apr 13, 2016
+ * @version 1.2.5.7, Aug 11, 2016
  * @since 1.4.0
  */
 @RequestProcessor
@@ -95,9 +108,129 @@ public class ChatRoomProcessor {
     private ShortLinkQueryService shortLinkQueryService;
 
     /**
+     * Notification query service.
+     */
+    @Inject
+    private NotificationQueryService notificationQueryService;
+
+    /**
+     * Notification management service.
+     */
+    @Inject
+    private NotificationMgmtService notificationMgmtService;
+
+    /**
+     * User query service.
+     */
+    @Inject
+    private UserQueryService userQueryService;
+
+    /**
+     * Comment management service.
+     */
+    @Inject
+    private CommentMgmtService commentMgmtService;
+
+    /**
+     * Comment query service.
+     */
+    @Inject
+    private CommentQueryService commentQueryService;
+
+    /**
+     * Article query service.
+     */
+    @Inject
+    private ArticleQueryService articleQueryService;
+
+    /**
      * Chat messages.
      */
-    private LinkedList<JSONObject> messages = new LinkedList<JSONObject>();
+    public static LinkedList<JSONObject> messages = new LinkedList<JSONObject>();
+
+    /**
+     * XiaoV replies Stm.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @throws IOException io exception
+     * @throws ServletException servlet exception
+     */
+    @RequestProcessing(value = "/cron/xiaov", method = HTTPRequestMethod.GET)
+    public void xiaoVReply(final HTTPRequestContext context, final HttpServletRequest request, final HttpServletResponse response)
+            throws IOException, ServletException {
+        context.renderJSON();
+
+        try {
+            final JSONObject xiaoV = userQueryService.getUserByName(TuringQueryService.ROBOT_NAME);
+            if (null == xiaoV) {
+                return;
+            }
+
+            final String xiaoVUserId = xiaoV.optString(Keys.OBJECT_ID);
+            final String xiaoVEmail = xiaoV.optString(User.USER_EMAIL);
+            final JSONObject result
+                    = notificationQueryService.getAtNotifications(xiaoVUserId, 1, 1); // Just get the latest one
+            final List<JSONObject> notifications = (List<JSONObject>) result.get(Keys.RESULTS);
+
+            for (final JSONObject notification : notifications) {
+                if (notification.optBoolean(Notification.NOTIFICATION_HAS_READ)) {
+                    continue;
+                }
+
+                String xiaoVSaid = "";
+
+                final JSONObject comment = new JSONObject();
+
+                String articleId = StringUtils.substringBetween(notification.optString(Common.URL),
+                        "/article/", "#");
+
+                String q = "";
+
+                if (!StringUtils.isBlank(articleId)) {
+                    final String originalCmtId = StringUtils.substringAfter(notification.optString(Common.URL), "#");
+                    final JSONObject originalCmt = commentQueryService.getCommentById(originalCmtId);
+                    q = originalCmt.optString(Comment.COMMENT_CONTENT);
+                } else {
+                    articleId = StringUtils.substringAfter(notification.optString(Common.URL),
+                            "/article/");
+
+                    final JSONObject article = articleQueryService.getArticleById(articleId);
+                    q = article.optString(Article.ARTICLE_CONTENT);
+                }
+
+                if (StringUtils.isNotBlank(q)) {
+                    q = Jsoup.parse(q).text();
+
+                    if (!StringUtils.contains(q, "@" + TuringQueryService.ROBOT_NAME + " ")) {
+                        continue;
+                    }
+
+                    q = StringUtils.replace(q, "@" + TuringQueryService.ROBOT_NAME + " ", "");
+
+                    xiaoVSaid = turingQueryService.chat(articleId, q);
+
+                    comment.put(Comment.COMMENT_CONTENT, xiaoVSaid);
+                    comment.put(Comment.COMMENT_AUTHOR_ID, xiaoVUserId);
+                    comment.put(Comment.COMMENT_AUTHOR_EMAIL, xiaoVEmail);
+                    comment.put(Comment.COMMENT_ON_ARTICLE_ID, articleId);
+
+                    xiaoV.remove(UserExt.USER_T_POINT_CC);
+                    xiaoV.remove(UserExt.USER_T_POINT_HEX);
+                    comment.put(Comment.COMMENT_T_COMMENTER, xiaoV);
+
+                    commentMgmtService.addComment(comment);
+                }
+
+                notificationMgmtService.makeRead(notification);
+            }
+
+            context.renderTrueResult();
+        } catch (final Exception e) {
+            LOGGER.log(Level.ERROR, "Update user latest comment time failed", e);
+        }
+    }
 
     /**
      * Adds a chat message.
@@ -119,7 +252,8 @@ public class ChatRoomProcessor {
      */
     @RequestProcessing(value = "/chat-room/send", method = HTTPRequestMethod.POST)
     @Before(adviceClass = {ChatMsgAddValidation.class})
-    public void addChatRoomMsg(final HTTPRequestContext context, final HttpServletRequest request, final HttpServletResponse response)
+    public synchronized void addChatRoomMsg(final HTTPRequestContext context,
+            final HttpServletRequest request, final HttpServletResponse response)
             throws IOException, ServletException {
         context.renderJSON();
 
@@ -184,7 +318,7 @@ public class ChatRoomProcessor {
      * @param response the specified response
      * @throws Exception exception
      */
-    @RequestProcessing(value = "/cr", method = HTTPRequestMethod.GET)
+    @RequestProcessing(value = {"/cr", "/chat-room", "/community"}, method = HTTPRequestMethod.GET)
     @Before(adviceClass = StopwatchStartAdvice.class)
     @After(adviceClass = StopwatchEndAdvice.class)
     public void showChatRoom(final HTTPRequestContext context,
@@ -209,10 +343,62 @@ public class ChatRoomProcessor {
 
         dataModel.put(Common.ONLINE_CHAT_CNT, SESSIONS.size());
 
+        filler.fillDomainNav(dataModel);
         filler.fillHeaderAndFooter(request, response, dataModel);
         filler.fillRandomArticles(dataModel);
-        filler.fillHotArticles(dataModel);
+        filler.fillSideHotArticles(dataModel);
         filler.fillSideTags(dataModel);
         filler.fillLatestCmts(dataModel);
+    }
+
+    /**
+     * XiaoV push API.
+     *
+     * @param context the specified context
+     * @param request the specified request
+     * @param response the specified response
+     * @throws Exception exception
+     */
+    @RequestProcessing(value = "/community/push", method = HTTPRequestMethod.POST)
+    @Before(adviceClass = StopwatchStartAdvice.class)
+    @After(adviceClass = StopwatchEndAdvice.class)
+    public synchronized void receiveXiaoV(final HTTPRequestContext context,
+            final HttpServletRequest request, final HttpServletResponse response) throws Exception {
+//        final String key = Symphonys.get("xiaov.key");
+//        if (!key.equals(request.getParameter("key"))) {
+//            response.sendError(HttpServletResponse.SC_FORBIDDEN);
+//
+//            return;
+//        }
+
+        final String msg = request.getParameter("msg");
+        if (StringUtils.isBlank(msg)) {
+            response.sendError(HttpServletResponse.SC_BAD_REQUEST);
+
+            return;
+        }
+
+        String user = request.getParameter("user");
+        if (StringUtils.isBlank("user")) {
+            user = "V";
+        }
+
+        final JSONObject ret = new JSONObject();
+        context.renderJSON(ret);
+
+        final String defaultAvatarURL = Symphonys.get("defaultThumbnailURL");
+        final JSONObject chatroomMsg = new JSONObject();
+        chatroomMsg.put(User.USER_NAME, user);
+        chatroomMsg.put(UserExt.USER_AVATAR_URL, defaultAvatarURL);
+        chatroomMsg.put(Common.CONTENT, msg);
+
+        ChatRoomChannel.notifyChat(chatroomMsg);
+        messages.addFirst(chatroomMsg);
+        final int maxCnt = Symphonys.getInt("chatRoom.msgCnt");
+        if (messages.size() > maxCnt) {
+            messages.remove(maxCnt);
+        }
+
+        ret.put(Keys.STATUS_CODE, true);
     }
 }
